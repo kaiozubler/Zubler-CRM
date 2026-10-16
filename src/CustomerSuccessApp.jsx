@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -111,14 +111,16 @@ function KanbanColumn({ stage, clients, isDark, T, dragOverId, onDragStart, onDr
   const [expanded, setExpanded] = useState({});
   const [showTooltip, setShowTooltip] = useState(false);
 
-  const groupedClients = groupBy === "owner" 
+  const groupKey = (c) => groupBy === "owner" ? c.owner : groupBy === "status" ? statusCfg[c.status].label : c.plan;
+  const groupedClients = groupBy !== "none"
     ? clients.reduce((acc, c) => {
-        const g = acc.find(x => x.owner === c.owner);
+        const key = groupKey(c);
+        const g = acc.find(x => x.key === key);
         if (g) g.clients.push(c);
-        else acc.push({ owner: c.owner, ownerInit: c.ownerInit, ownerHue: c.ownerHue, clients: [c] });
+        else acc.push({ key, ownerInit: c.ownerInit, ownerHue: c.ownerHue, status: c.status, clients: [c] });
         return acc;
-      }, []).map(g => ({ ...g, expanded: expanded[g.owner] !== false }))
-    : [{ owner: null, clients, expanded: true }];
+      }, []).map(g => ({ ...g, expanded: expanded[g.key] !== false }))
+    : [];
 
   return (
     <div style={{ width:188, flexShrink:0, display:"flex", flexDirection:"column", gap:8 }}>
@@ -163,24 +165,26 @@ function KanbanColumn({ stage, clients, isDark, T, dragOverId, onDragStart, onDr
 
       <div onDragOver={(e) => { e.preventDefault(); onDragOver(stage.id); }}
         onDrop={(e) => { e.preventDefault(); onDrop(stage.id); }}
-        style={{ display:"flex", flexDirection:"column", gap: groupBy === "owner" ? 8 : 7,
+        style={{ display:"flex", flexDirection:"column", gap: groupBy !== "none" ? 8 : 7,
           overflowY:"auto", maxHeight:460, minHeight:80, borderRadius:8,
           background: isOver ? T.dropZone : "transparent", border: isOver ? `2px dashed ${T.dropBorder}` : "1px solid transparent",
           paddingTop:8, paddingBottom:8, paddingLeft:0, paddingRight:0, transition:"all 0.15s" }}>
-        {groupBy === "owner" ? (
+        {groupBy !== "none" ? (
           groupedClients.length === 0 ? <div style={{ padding:"20px", textAlign:"center", fontSize:10, color:T.textMuted, flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>Solte aqui</div> :
           groupedClients.map(group => (
-            <div key={group.owner}>
-              <button onClick={() => setExpanded(p => ({ ...p, [group.owner]: !p[group.owner] }))}
+            <div key={group.key}>
+              <button onClick={() => setExpanded(p => ({ ...p, [group.key]: !group.expanded }))}
                 style={{ width:"100%", padding:"6px 8px", borderRadius:6, fontSize:10, fontWeight:600, cursor:"pointer",
                   border:`1px solid ${T.border}`, background:T.bg, color:T.text, display:"flex", alignItems:"center", gap:6,
                   transition:"all 0.12s", fontFamily:"inherit" }}>
-                <span style={{ fontSize:10, color:T.textMuted }}>{expanded[group.owner] ? "▼" : "▶"}</span>
-                <Avatar initials={group.ownerInit} hue={group.ownerHue} size={16}/>
-                <span style={{ flex:1, textAlign:"left", fontSize:10, fontWeight:600 }}>{group.owner.split(" ")[0]}</span>
+                <span style={{ fontSize:10, color:T.textMuted }}>{group.expanded ? "▼" : "▶"}</span>
+                {groupBy === "owner" && <Avatar initials={group.ownerInit} hue={group.ownerHue} size={16}/>}
+                {groupBy === "status"
+                  ? <span style={{ flex:1, textAlign:"left" }}><Badge status={group.status} isDark={isDark}/></span>
+                  : <span style={{ flex:1, textAlign:"left", fontSize:10, fontWeight:600 }}>{groupBy === "owner" ? group.key.split(" ")[0] : group.key}</span>}
                 <span style={{ fontSize:9, color:T.textMuted }}>{group.clients.length}</span>
               </button>
-              {expanded[group.owner] && (
+              {group.expanded && (
                 <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
                   {group.clients.map(c => <KanbanCard key={c.id} client={c} isDark={isDark} T={T} onDragStart={onDragStart} onCardClick={onCardClick}/>)}
                 </div>
@@ -206,6 +210,18 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
   const [showFilters, setShowFilters] = useState(false);
   const [layoutMode, setLayoutMode] = useState("vertical");
   const [groupBy, setGroupBy] = useState("none");
+  const [showGroup, setShowGroup] = useState(false);
+  const singleFunnel = pipeMode !== "both";
+  const groupOptions = [["none","Sem agrupamento"],["owner","Responsável"],["status","Status"],["plan","Plano"]];
+
+  // Com mais de um responsável filtrado, só um funil por vez
+  useEffect(() => {
+    if (filterUsers.length > 1 && pipeMode === "both") setPipeMode("onboarding");
+  }, [filterUsers, pipeMode]);
+  // Agrupar por status/plano só está disponível com um único funil
+  useEffect(() => {
+    if (!singleFunnel && (groupBy === "status" || groupBy === "plan")) setGroupBy("none");
+  }, [singleFunnel, groupBy]);
 
   const allUsers = [...new Map(clients.map(c => [c.owner, { owner: c.owner, init: c.ownerInit, hue: c.ownerHue }])).values()];
   const toggleUser = (owner) => {
@@ -260,7 +276,7 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
         </div>
         
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6, position:"relative" }}>
-          <button onClick={() => setGroupBy(groupBy === "none" ? "owner" : "none")} title={groupBy === "none" ? "Agrupar por responsável" : "Sem agrupamento"}
+          <button onClick={() => { setShowGroup(!showGroup); setShowFilters(false); }} title="Agrupar por" 
             style={{ width:36, height:36, borderRadius:8, border:`1.5px solid ${groupBy !== "none" ? T.borderHi : T.border}`,
               background:groupBy !== "none" ? T.accentBg : T.card, cursor:"pointer", display:"flex", alignItems:"center",
               justifyContent:"center", fontSize:16, color:groupBy !== "none" ? T.accentText : T.textSub, transition:"all 0.12s" }}
@@ -268,6 +284,25 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
             onMouseLeave={e=>{ e.currentTarget.style.borderColor = groupBy !== "none" ? T.borderHi : T.border; e.currentTarget.style.color = groupBy !== "none" ? T.accentText : T.textSub; }}>
             👥
           </button>
+
+          {showGroup && (
+            <div style={{ position:"absolute", top:"42px", right:84, background:T.card, border:`1px solid ${T.border}`, borderRadius:10,
+              padding:"10px", zIndex:300, minWidth:"200px", boxShadow:T.shadow }}>
+              <div style={{ fontSize:11, fontWeight:600, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:7 }}>Agrupar por</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                {groupOptions.map(([v,l]) => {
+                  const disabled = !singleFunnel && (v === "status" || v === "plan");
+                  return (
+                    <button key={v} disabled={disabled} onClick={() => { setGroupBy(v); setShowGroup(false); }} style={{
+                      padding:"6px 9px", borderRadius:6, fontSize:11, fontWeight:500, cursor: disabled ? "not-allowed" : "pointer", border:"none",
+                      background: groupBy===v ? T.accentBg : T.bg, color: groupBy===v ? T.accentText : T.textSub, opacity: disabled ? 0.45 : 1,
+                      textAlign:"left", transition:"all 0.12s", fontFamily:"inherit" }}>{l}</button>
+                  );
+                })}
+              </div>
+              {!singleFunnel && <div style={{ fontSize:10, color:T.textMuted, marginTop:8, lineHeight:1.4 }}>Status e Plano ficam disponíveis ao selecionar um único funil.</div>}
+            </div>
+          )}
 
           <button onClick={() => setLayoutMode(layoutMode==="vertical"?"horizontal":"vertical")} title={layoutMode==="vertical"?"Horizontal":"Vertical"}
             style={{ width:36, height:36, borderRadius:8, border:`1.5px solid ${layoutMode==="horizontal" ? T.borderHi : T.border}`,
@@ -278,7 +313,7 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
             {layoutMode==="vertical"?"┃":"━"}
           </button>
 
-          <button onClick={() => setShowFilters(!showFilters)} title="Filtros"
+          <button onClick={() => { setShowFilters(!showFilters); setShowGroup(false); }} title="Filtros"
             style={{ width:36, height:36, borderRadius:8, border:`1.5px solid ${filterUsers.length > 0 || filterSt !== "all" ? T.borderHi : T.border}`,
               background:filterUsers.length > 0 || filterSt !== "all" ? T.accentBg : T.card, cursor:"pointer", display:"flex", alignItems:"center",
               justifyContent:"center", fontSize:16, color:filterUsers.length > 0 || filterSt !== "all" ? T.accentText : T.textSub, transition:"all 0.12s", position:"relative" }}
@@ -406,9 +441,8 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENT BROWSER TAB
 // ─────────────────────────────────────────────────────────────────────────────
-function ClientTab({ client, isDark, T, onClose, openTabs, onTabClick }) {
+function ClientTab({ client, isDark, T, onClose, onLost }) {
   const [tab, setTab] = useState("dados");
-  const selectedClient = client;
 
   const TabButton = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{
@@ -431,9 +465,14 @@ function ClientTab({ client, isDark, T, onClose, openTabs, onTabClick }) {
           <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:2 }}>{client.razao}</div>
           <div style={{ fontSize:11, color:T.textMuted }}>{client.funnel==="onboarding"?"Onboarding":"Ongoing"} · {client.plan}</div>
         </div>
-        <button onClick={() => onClose(client.id)} style={{
-          background:"transparent", border:"none", fontSize:20, color:T.textMuted,
-          cursor:"pointer", padding:0, width:20, height:20 }}>✕</button>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={() => onLost(client.id)} style={{
+            padding:"5px 10px", borderRadius:6, fontSize:11, fontWeight:600, cursor:"pointer",
+            border:"1.5px solid #DC2626", background:"transparent", color:"#DC2626", fontFamily:"inherit" }}>✕ Lost</button>
+          <button onClick={() => onClose(client.id)} title="Fechar aba" style={{
+            background:"transparent", border:"none", fontSize:20, color:T.textMuted,
+            cursor:"pointer", padding:0, width:20, height:20 }}>✕</button>
+        </div>
       </div>
 
       {/* Quick Stats */}
@@ -553,13 +592,233 @@ function ClientTab({ client, isDark, T, onClose, openTabs, onTabClick }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+function DashboardView({ clients, lostClients, isDark, T, onCardClick }) {
+  const mrr = clients.reduce((s,c)=>s+c.mrr,0);
+  const avgHs = clients.length ? Math.round(clients.reduce((s,c)=>s+c.hs,0) / clients.length) : 0;
+  const atRisk = clients.filter(c => c.hs < 50 || c.stage === "risco");
+  const lostMrr = lostClients.reduce((s,c)=>s+c.mrr,0);
+  const owners = [...new Map(clients.map(c => [c.owner, { owner:c.owner, init:c.ownerInit, hue:c.ownerHue }])).values()];
+
+  const Metric = ({ label, value, color }) => (
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 16px", boxShadow:T.shadowCard }}>
+      <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{label}</div>
+      <div style={{ fontSize:22, fontWeight:800, color: color || T.text }}>{value}</div>
+    </div>
+  );
+  const Section = ({ title, children }) => (
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 16px", boxShadow:T.shadowCard, minWidth:0 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:12 }}>{title}</div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))", gap:12 }}>
+        <Metric label="Clientes ativos" value={clients.length}/>
+        <Metric label="MRR total" value={fmtMrr(mrr)} color={T.accentText}/>
+        <Metric label="Health score médio" value={avgHs} color={hsColor(avgHs)}/>
+        <Metric label="Em risco" value={atRisk.length} color="#DC2626"/>
+        <Metric label="MRR perdido (lost)" value={fmtMrr(lostMrr)} color={lostMrr ? "#DC2626" : T.textMuted}/>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:14 }}>
+        <Section title="Saúde por cliente">
+          <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+            {[...clients].sort((a,b)=>b.hs-a.hs).map(c => (
+              <div key={c.id} onClick={() => onCardClick(c)} style={{ display:"grid", gridTemplateColumns:"110px 1fr", alignItems:"center", gap:10, cursor:"pointer" }}>
+                <span style={{ fontSize:11, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</span>
+                <HsBar value={c.hs} isDark={isDark}/>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Atenção necessária">
+          {atRisk.length === 0 ? (
+            <div style={{ fontSize:12, color:T.textMuted }}>Nenhum cliente em risco 🎉</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {atRisk.map(c => (
+                <div key={c.id} onClick={() => onCardClick(c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, background:T.bg, cursor:"pointer" }}>
+                  <Avatar initials={c.ownerInit} hue={c.ownerHue} size={22}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{c.name}</div>
+                    <div style={{ fontSize:10, color:T.textMuted }}>{ALL_STAGES.find(s=>s.id===c.stage)?.name} · {fmtMrr(c.mrr)}</div>
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:800, color:hsColor(c.hs) }}>{c.hs}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Carteira por responsável">
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {owners.map(o => {
+              const own = clients.filter(c => c.owner === o.owner);
+              const oHs = Math.round(own.reduce((s,c)=>s+c.hs,0) / own.length);
+              return (
+                <div key={o.owner} style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <Avatar initials={o.init} hue={o.hue} size={24}/>
+                  <span style={{ flex:1, fontSize:12, fontWeight:600, color:T.text }}>{o.owner}</span>
+                  <span style={{ fontSize:11, color:T.textMuted }}>{own.length} clientes</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:T.textSub, minWidth:80, textAlign:"right" }}>{fmtMrr(own.reduce((s,c)=>s+c.mrr,0))}</span>
+                  <span style={{ fontSize:12, fontWeight:800, color:hsColor(oHs), minWidth:24, textAlign:"right" }}>{oHs}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+
+        {lostClients.length > 0 && (
+          <Section title="Cancelamentos (lost)">
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {lostClients.map(c => (
+                <div key={c.id} style={{ padding:"8px 10px", borderRadius:8, background:T.bg }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", gap:8 }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:T.text }}>{c.name}</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:"#DC2626" }}>{fmtMrr(c.mrr)}</span>
+                  </div>
+                  <div style={{ fontSize:10, color:T.textMuted, marginTop:2 }}>
+                    {c.lost.reason} · {new Date(c.lost.date + "T00:00").toLocaleDateString("pt-BR")}
+                    {c.lost.fine > 0 && ` · multa ${fmtMrr(c.lost.fine)}`}
+                    {c.lost.pendingBills > 0 && ` · ${c.lost.pendingBills} boleto(s) pendente(s)`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOST MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+const LOST_REASONS = ["Preço", "Falta de uso / adoção", "Migrou para concorrente", "Insatisfação com suporte", "Encerramento da empresa", "Corte de custos", "Outro"];
+
+function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
+  const [form, setForm] = useState({
+    clientId: initialClientId ?? clients[0]?.id ?? "",
+    reason: LOST_REASONS[0], date: new Date().toISOString().slice(0,10),
+    fine: "", pendingBills: "", pendingAmount: "", notes: "",
+  });
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const field = { width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
+  const Label = ({ children }) => <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5 }}>{children}</div>;
+
+  const submit = () => {
+    if (!form.clientId) return;
+    onConfirm(Number(form.clientId), {
+      reason: form.reason, date: form.date, notes: form.notes,
+      fine: Number(form.fine) || 0, pendingBills: Number(form.pendingBills) || 0, pendingAmount: Number(form.pendingAmount) || 0,
+    });
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", backdropFilter:"blur(3px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width:"100%", maxWidth:460, background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:"0 20px 50px rgba(0,0,0,0.25)", overflow:"hidden" }}>
+        <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <span style={{ fontSize:14, fontWeight:800, color:"#DC2626" }}>Marcar cliente como lost</span>
+          <button onClick={onClose} style={{ background:"transparent", border:"none", fontSize:16, color:T.textMuted, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ padding:"16px 18px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <Label>Cliente</Label>
+            <select value={form.clientId} onChange={set("clientId")} style={field}>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name} — {c.razao}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label>Motivo</Label>
+            <select value={form.reason} onChange={set("reason")} style={field}>
+              {LOST_REASONS.map(r => <option key={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label>Data do cancelamento</Label>
+            <input type="date" value={form.date} onChange={set("date")} style={field}/>
+          </div>
+          <div>
+            <Label>Multa (R$)</Label>
+            <input type="number" min="0" placeholder="0" value={form.fine} onChange={set("fine")} style={field}/>
+          </div>
+          <div>
+            <Label>Boletos pendentes</Label>
+            <input type="number" min="0" placeholder="0" value={form.pendingBills} onChange={set("pendingBills")} style={field}/>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <Label>Valor em aberto (R$)</Label>
+            <input type="number" min="0" placeholder="0" value={form.pendingAmount} onChange={set("pendingAmount")} style={field}/>
+          </div>
+          <div style={{ gridColumn:"1 / -1" }}>
+            <Label>Observações</Label>
+            <textarea rows={3} value={form.notes} onChange={set("notes")} placeholder="Detalhes do cancelamento…" style={{ ...field, resize:"vertical" }}/>
+          </div>
+        </div>
+        <div style={{ padding:"12px 18px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"flex-end", gap:8 }}>
+          <button onClick={onClose} style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${T.border}`, background:"transparent", color:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Cancelar</button>
+          <button onClick={submit} disabled={!clients.length} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#DC2626", color:"#FFFFFF", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Confirmar lost</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLACEHOLDER VIEWS
+// ─────────────────────────────────────────────────────────────────────────────
+function PlaceholderView({ icon, title, description, T }) {
+  return (
+    <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ textAlign:"center", maxWidth:360 }}>
+        <div style={{ fontSize:34, marginBottom:10 }}>{icon}</div>
+        <div style={{ fontSize:15, fontWeight:800, color:T.text, marginBottom:6 }}>{title}</div>
+        <div style={{ fontSize:12, color:T.textMuted, lineHeight:1.5 }}>{description}</div>
+      </div>
+    </div>
+  );
+}
+
+const NAV_ITEMS = [
+  { id:"dashboard", label:"Dashboard", icon:"⌂" },
+  { id:"pipe", label:"Pipe", icon:"▦" },
+  { id:"agenda", label:"Agenda", icon:"📅", desc:"Reuniões, follow-ups e marcos dos clientes em um calendário único." },
+  { id:"atividades", label:"Atividades", icon:"✓", desc:"Tarefas e interações registradas com cada cliente da carteira." },
+  { id:"jornadas", label:"Jornadas", icon:"⇢", desc:"Fluxos de etapas com gatilhos e automações personalizáveis." },
+  { id:"nps", label:"NPS", icon:"★", desc:"Pesquisas de satisfação, promotores, neutros e detratores." },
+  { id:"indicadores", label:"Indicadores", icon:"📈", desc:"Churn, retenção, expansão de receita e evolução do health score." },
+  { id:"config", label:"Configurações", icon:"⚙", desc:"Funis, etapas, status personalizados e campos dos cards." },
+];
 
 export default function App() {
   const [isDark, setIsDark] = useState(false);
   const [clients, setClients] = useState(INITIAL_CLIENTS);
+  const [lostClients, setLostClients] = useState([]);
+  const [lostModal, setLostModal] = useState(null);
+  const [view, setView] = useState("pipe");
   const [openTabs, setOpenTabs] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const T = THEMES[isDark ? "dark" : "light"];
+  const currentNav = NAV_ITEMS.find(n => n.id === view);
+
+  const confirmLost = (clientId, lost) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    setClients(prev => prev.filter(c => c.id !== clientId));
+    setLostClients(prev => [...prev, { ...client, lost }]);
+    setOpenTabs(prev => prev.filter(c => c.id !== clientId));
+    if (selectedClient?.id === clientId) setSelectedClient(null);
+    setLostModal(null);
+  };
+
+  const goTo = (id) => { setView(id); setSelectedClient(null); };
 
   const openClientTab = (client) => {
     const exists = openTabs.find(c => c.id === client.id);
@@ -581,64 +840,69 @@ export default function App() {
     setSelectedClient(client);
   };
 
+  const liveSelected = selectedClient && clients.find(c => c.id === selectedClient.id);
+
+  const clientTabs = openTabs.length > 0 && (
+    <div style={{ display:"flex", alignItems:"center", gap:2, borderLeft:`1px solid ${T.border}`, paddingLeft:12, overflowX:"auto", scrollBehavior:"smooth", minWidth:0 }}>
+      {openTabs.map(c => {
+        const active = selectedClient?.id === c.id;
+        return (
+          <div key={c.id} role="button" onClick={() => switchTab(c)} style={{ padding:"4px 10px", fontSize:10, fontWeight: active ? 700 : 500, cursor:"pointer", background: active ? T.accentBg : "transparent", color: active ? T.accentText : T.textMuted, transition:"all 0.12s", display:"flex", alignItems:"center", gap:5, borderRadius:5, whiteSpace:"nowrap" }}>
+            <span>{c.name}</span>
+            <button onClick={(e) => { e.stopPropagation(); closeClientTab(c.id); }} title="Fechar aba" style={{ background:"transparent", border:"none", color:"inherit", cursor:"pointer", fontSize:10, padding:0, display:"flex", alignItems:"center", lineHeight:1, fontWeight:700 }}>✕</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const renderView = () => {
+    if (view === "pipe") return <PipeView clients={clients} setClients={setClients} isDark={isDark} T={T} onLost={() => setLostModal({ clientId: null })} openTabs={openTabs} selectedClient={selectedClient} openClientTab={openClientTab} closeClientTab={closeClientTab} switchTab={switchTab}/>;
+    if (view === "dashboard") return <DashboardView clients={clients} lostClients={lostClients} isDark={isDark} T={T} onCardClick={openClientTab}/>;
+    return <PlaceholderView icon={currentNav.icon} title={currentNav.label} description={`${currentNav.desc} Módulo em desenvolvimento.`} T={T}/>;
+  };
+
   return (
     <div style={{ display:"flex", height:"100vh", background:T.bg, fontFamily:"Inter,system-ui,sans-serif", color:T.text, overflow:"hidden" }}>
-      <div style={{ width:58, background:T.bg, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", padding:"12px 0", gap:4, flexShrink:0, boxShadow:T.shadow }}>
+      <nav style={{ width:64, background:T.surface, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", padding:"12px 0", gap:4, flexShrink:0, boxShadow:T.shadow }}>
         <div style={{ width:34, height:34, borderRadius:9, background:T.accentBg, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:8 }}>
           <span style={{ fontSize:18, color:T.accentText }}>♥</span>
         </div>
+        {NAV_ITEMS.map(n => {
+          const active = view === n.id && !selectedClient;
+          return (
+            <button key={n.id} onClick={() => goTo(n.id)} title={n.label} style={{ width:54, padding:"7px 0 5px", borderRadius:9, border:"none", background: active ? T.accentBg : "transparent", color: active ? T.accentText : T.textSub, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, fontFamily:"inherit", transition:"background 0.15s" }}>
+              <span style={{ fontSize:15, lineHeight:1 }}>{n.icon}</span>
+              <span style={{ fontSize:8.5, fontWeight: active ? 700 : 500, maxWidth:52, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{n.label}</span>
+            </button>
+          );
+        })}
         <div style={{ flex:1 }}/>
-        <button onClick={() => setIsDark(d=>!d)} title={isDark?"Modo claro":"Modo escuro"} style={{ width:44, height:44, borderRadius:9, border:"none", background:T.bg, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, transition:"background 0.15s" }}>
+        <button onClick={() => setIsDark(d=>!d)} title={isDark?"Modo claro":"Modo escuro"} style={{ width:44, height:44, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, transition:"background 0.15s" }}>
           {isDark ? "☀" : "☾"}
         </button>
+      </nav>
+
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0, background:T.surface }}>
+        <div style={{ height:50, background:T.surface, borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", padding:"0 18px", gap:12, flexShrink:0 }}>
+          {liveSelected ? (
+            <button onClick={() => setSelectedClient(null)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, cursor:"pointer", border:"none", background:T.accentBg, color:T.accentText, transition:"all 0.12s", fontFamily:"inherit", display:"flex", alignItems:"center", gap:6, borderRadius:6, whiteSpace:"nowrap" }}>
+              ← {currentNav.label}
+            </button>
+          ) : (
+            <span style={{ fontSize:15, fontWeight:800, color:T.text, whiteSpace:"nowrap" }}>{currentNav.label}</span>
+          )}
+          {clientTabs}
+          <div style={{ flex:1 }}/>
+        </div>
+
+        {liveSelected
+          ? <ClientTab client={liveSelected} isDark={isDark} T={T} onClose={closeClientTab} onLost={(id) => setLostModal({ clientId: id })}/>
+          : renderView()}
       </div>
 
-      {selectedClient ? (
-        // Full-screen client modal
-        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:T.surface }}>
-          <div style={{ height:50, background:T.surface, borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", padding:"0 18px", gap:12, flexShrink:0 }}>
-            <button onClick={() => setSelectedClient(null)} style={{ padding:"4px 10px", fontSize:11, fontWeight:600, cursor:"pointer", border:"none", background:T.accentBg, color:T.accentText, transition:"all 0.12s", fontFamily:"inherit", display:"flex", alignItems:"center", gap:6, borderRadius:6, whiteSpace:"nowrap" }}>
-              ← Pipe
-            </button>
-            
-            {openTabs.length > 0 && (
-              <div style={{ display:"flex", alignItems:"center", gap:0, borderLeft:`1px solid ${T.border}`, paddingLeft:12, overflowX:"auto", scrollBehavior:"smooth" }}>
-                {openTabs.map(c => (
-                  <button key={c.id} onClick={() => switchTab(c)} style={{ padding:"4px 10px", fontSize:10, fontWeight:selectedClient?.id === c.id ? 700 : 500, cursor:"pointer", border:"none", background: selectedClient?.id === c.id ? T.accentBg : "transparent", color: selectedClient?.id === c.id ? T.accentText : T.textMuted, transition:"all 0.12s", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5, borderRadius:5, whiteSpace:"nowrap" }}>
-                    <span>{c.razao.split(" ")[0]}</span>
-                    <button onClick={(e) => { e.stopPropagation(); closeClientTab(c.id); }} style={{ background:"transparent", border:"none", color:"inherit", cursor:"pointer", fontSize:10, padding:0, display:"flex", alignItems:"center", lineHeight:1, fontWeight:700 }}>✕</button>
-                  </button>
-                ))}
-              </div>
-            )}
-            
-            <div style={{ flex:1 }}/>
-          </div>
-          
-          {/* Client details panel fills the rest */}
-          <ClientTab client={selectedClient} isDark={isDark} T={T} onClose={closeClientTab} openTabs={openTabs} onTabClick={switchTab}/>
-        </div>
-      ) : (
-        // Normal pipe view
-        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-          <div style={{ height:50, background:T.surface, borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", padding:"0 18px", gap:12, flexShrink:0 }}>
-            <span style={{ fontSize:15, fontWeight:800, color:T.text }}>Pipe</span>
-            
-            {openTabs.length > 0 && (
-              <div style={{ display:"flex", alignItems:"center", gap:0, borderLeft:`1px solid ${T.border}`, paddingLeft:12, overflowX:"auto", scrollBehavior:"smooth" }}>
-                {openTabs.map(c => (
-                  <button key={c.id} onClick={() => switchTab(c)} style={{ padding:"4px 10px", fontSize:10, fontWeight:selectedClient?.id === c.id ? 700 : 500, cursor:"pointer", border:"none", background: selectedClient?.id === c.id ? T.accentBg : "transparent", color: selectedClient?.id === c.id ? T.accentText : T.textMuted, transition:"all 0.12s", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5, borderRadius:5, whiteSpace:"nowrap" }}>
-                    <span>{c.razao.split(" ")[0]}</span>
-                    <button onClick={(e) => { e.stopPropagation(); closeClientTab(c.id); }} style={{ background:"transparent", border:"none", color:"inherit", cursor:"pointer", fontSize:10, padding:0, display:"flex", alignItems:"center", lineHeight:1, fontWeight:700 }}>✕</button>
-                  </button>
-                ))}
-              </div>
-            )}
-            
-            <div style={{ flex:1 }}/>
-          </div>
-          <PipeView clients={clients} setClients={setClients} isDark={isDark} T={T} onLost={()=>alert("Lost modal aqui")} openTabs={openTabs} selectedClient={selectedClient} openClientTab={openClientTab} closeClientTab={closeClientTab} switchTab={switchTab}/>
-        </div>
+      {lostModal && (
+        <LostModal clients={clients} initialClientId={lostModal.clientId} T={T} onClose={() => setLostModal(null)} onConfirm={confirmLost}/>
       )}
     </div>
   );
