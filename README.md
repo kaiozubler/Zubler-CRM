@@ -9,10 +9,30 @@ npm install
 npm run dev
 ```
 
+## Conexão com o app (Clínicas, Usuários, Financeiro)
+
+As telas Clínicas, Usuários e Financeiro usam dados reais do app pela Edge Function
+`supabase/functions/crm-ponte`. O navegador nunca vê o `CRM_BRIDGE_TOKEN`: ele manda o
+login do Supabase, a função confere se o e-mail é da equipe e repassa a chamada para
+`CORE_API_URL/api/public/crm/...`.
+
+Secrets do projeto no Lovable (Cloud → Secrets):
+
+| Nome | Valor |
+|---|---|
+| `CRM_BRIDGE_TOKEN` | o mesmo token configurado no app |
+| `CORE_API_URL` | endereço do app, ex.: `https://seu-dominio.com.br` |
+| `CRM_ADMIN_EMAILS` | e-mails que podem usar o CRM, separados por vírgula |
+
+As contas de login da equipe são criadas no Lovable em Cloud → Users. O front lê
+`VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`, que o Lovable Cloud preenche.
+
 ## Estrutura
 
 - `src/CustomerSuccessApp.jsx` — o app inteiro (componente React autocontido, estilos inline, dados de exemplo)
-- `src/main.jsx` — ponto de entrada do Vite
+- `src/main.jsx` — ponto de entrada do Vite (exige login antes de abrir o app)
+- `src/core/` — login, acesso à ponte (`api.js`) e as telas Clínicas, Usuários e Financeiro
+- `supabase/functions/crm-ponte/` — Edge Function que guarda o token e repassa as chamadas ao app
 
 ## Funcionalidades
 

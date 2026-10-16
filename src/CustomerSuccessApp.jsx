@@ -1,4 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
+import { supabase } from "./core/api.js";
+import ClinicasView from "./core/ClinicasView.jsx";
+import UsuariosView from "./core/UsuariosView.jsx";
+import FinanceiroView from "./core/FinanceiroView.jsx";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -789,6 +793,9 @@ function PlaceholderView({ icon, title, description, T }) {
 const NAV_ITEMS = [
   { id:"dashboard", label:"Dashboard", icon:"⌂" },
   { id:"pipe", label:"Pipe", icon:"▦" },
+  { id:"clinicas", label:"Clínicas", icon:"🏥" },
+  { id:"usuarios", label:"Usuários", icon:"👤" },
+  { id:"financeiro", label:"Financeiro", icon:"$" },
   { id:"agenda", label:"Agenda", icon:"📅", desc:"Reuniões, follow-ups e marcos dos clientes em um calendário único." },
   { id:"atividades", label:"Atividades", icon:"✓", desc:"Tarefas e interações registradas com cada cliente da carteira." },
   { id:"jornadas", label:"Jornadas", icon:"⇢", desc:"Fluxos de etapas com gatilhos e automações personalizáveis." },
@@ -797,7 +804,7 @@ const NAV_ITEMS = [
   { id:"config", label:"Configurações", icon:"⚙", desc:"Funis, etapas, status personalizados e campos dos cards." },
 ];
 
-export default function App() {
+export default function App({ sessao }) {
   const [isDark, setIsDark] = useState(false);
   const [clients, setClients] = useState(INITIAL_CLIENTS);
   const [lostClients, setLostClients] = useState([]);
@@ -858,6 +865,9 @@ export default function App() {
 
   const renderView = () => {
     if (view === "pipe") return <PipeView clients={clients} setClients={setClients} isDark={isDark} T={T} onLost={() => setLostModal({ clientId: null })} openTabs={openTabs} selectedClient={selectedClient} openClientTab={openClientTab} closeClientTab={closeClientTab} switchTab={switchTab}/>;
+    if (view === "clinicas") return <ClinicasView T={T}/>;
+    if (view === "usuarios") return <UsuariosView T={T}/>;
+    if (view === "financeiro") return <FinanceiroView T={T}/>;
     if (view === "dashboard") return <DashboardView clients={clients} lostClients={lostClients} isDark={isDark} T={T} onCardClick={openClientTab}/>;
     return <PlaceholderView icon={currentNav.icon} title={currentNav.label} description={`${currentNav.desc} Módulo em desenvolvimento.`} T={T}/>;
   };
@@ -878,6 +888,10 @@ export default function App() {
           );
         })}
         <div style={{ flex:1 }}/>
+        <button onClick={() => supabase.auth.signOut()} title={`Sair (${sessao?.user?.email ?? ""})`} style={{ width:44, height:44, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, fontFamily:"inherit", transition:"background 0.15s" }}>
+          <span style={{ fontSize:15, lineHeight:1 }}>⇥</span>
+          <span style={{ fontSize:8.5, fontWeight:500 }}>Sair</span>
+        </button>
         <button onClick={() => setIsDark(d=>!d)} title={isDark?"Modo claro":"Modo escuro"} style={{ width:44, height:44, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, transition:"background 0.15s" }}>
           {isDark ? "☀" : "☾"}
         </button>
