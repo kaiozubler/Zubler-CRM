@@ -9,9 +9,9 @@ npm install
 npm run dev
 ```
 
-## Conexão com o app (Clínicas, Usuários, Financeiro)
+## Conexão com o app (Clínicas, Usuários, Financeiro, Cupons)
 
-As telas Clínicas, Usuários e Financeiro usam dados reais do app pela Edge Function
+As telas Clínicas, Usuários, Financeiro e Cupons usam dados reais do app pela Edge Function
 `supabase/functions/crm-ponte`. O navegador nunca vê o `CRM_BRIDGE_TOKEN`: ele manda o
 login do Supabase, a função confere se o e-mail é da equipe e repassa a chamada para
 `CORE_API_URL/api/public/crm/...`.
@@ -31,12 +31,17 @@ As contas de login da equipe são criadas no Lovable em Cloud → Users. O front
 
 - `src/CustomerSuccessApp.jsx` — o app inteiro (componente React autocontido, estilos inline, dados de exemplo)
 - `src/main.jsx` — ponto de entrada do Vite (exige login antes de abrir o app)
-- `src/core/` — login, acesso à ponte (`api.js`) e as telas Clínicas, Usuários e Financeiro
+- `src/core/` — login, acesso à ponte (`api.js`) e as telas Clínicas, Usuários, Financeiro e Cupons
 - `supabase/functions/crm-ponte/` — Edge Function que guarda o token e repassa as chamadas ao app
 
 ## Funcionalidades
 
-- **Sidebar**: Dashboard, Pipe, Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância claro/escuro
+- **Sidebar**: Dashboard, Pipe, - **Cupons**: planos atuais do MediCopilot (lidos do app) e cupons de desconto da contratação —
+  porcentagem, valor fixo, dias de teste grátis ou recurso adicional grátis; por plano ou para
+  qualquer plano; vitalício ou por N meses; com validade e limite de usos. O nome do cupom é o
+  código que o cliente digita e não se repete. Os cupons ficam no banco do app (tabela `cupons`).
+
+Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância claro/escuro
 - **Dashboard**: clientes ativos, MRR, health score médio, clientes em risco, carteira por responsável, cancelamentos
 - **Pipe**: funis Onboarding (Kick-off → Check-out) e Ongoing (Ativação → Sucesso)
   - Bifurcação vertical/horizontal (┃/━), com rolagem independente por funil
@@ -46,5 +51,10 @@ As contas de login da equipe são criadas no Lovable em Cloud → Users. O front
   - Contador da etapa com tooltip do MRR e botão "+" para automações
 - **Cliente**: abas no topbar, como num navegador (várias abertas ao mesmo tempo), tela cheia com Dados, Timeline, Neural Score, Atividades, Tickets, Financeiro
 - **Lost**: motivo, data, multa, boletos pendentes, valor em aberto e observações; o cliente sai da pipe e aparece no Dashboard
+
+- **Cupons**: planos atuais do MediCopilot (lidos do app) e cupons de desconto da contratação —
+  porcentagem, valor fixo, dias de teste grátis ou recurso adicional grátis; por plano ou para
+  qualquer plano; vitalício ou por N meses; com validade e limite de usos. O nome do cupom é o
+  código que o cliente digita e não se repete. Os cupons ficam no banco do app (tabela `cupons`).
 
 Agenda, Atividades, Jornadas, NPS, Indicadores e Configurações ainda são telas de placeholder.

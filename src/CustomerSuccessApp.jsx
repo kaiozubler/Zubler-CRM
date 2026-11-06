@@ -3,6 +3,7 @@ import { supabase } from "./core/api.js";
 import ClinicasView from "./core/ClinicasView.jsx";
 import UsuariosView from "./core/UsuariosView.jsx";
 import FinanceiroView from "./core/FinanceiroView.jsx";
+import CuponsView from "./core/CuponsView.jsx";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -796,6 +797,7 @@ const NAV_ITEMS = [
   { id:"clinicas", label:"Clínicas", icon:"🏥" },
   { id:"usuarios", label:"Usuários", icon:"👤" },
   { id:"financeiro", label:"Financeiro", icon:"$" },
+  { id:"cupons", label:"Cupons", icon:"🏷" },
   { id:"agenda", label:"Agenda", icon:"📅", desc:"Reuniões, follow-ups e marcos dos clientes em um calendário único." },
   { id:"atividades", label:"Atividades", icon:"✓", desc:"Tarefas e interações registradas com cada cliente da carteira." },
   { id:"jornadas", label:"Jornadas", icon:"⇢", desc:"Fluxos de etapas com gatilhos e automações personalizáveis." },
@@ -868,6 +870,7 @@ export default function App({ sessao }) {
     if (view === "clinicas") return <ClinicasView T={T}/>;
     if (view === "usuarios") return <UsuariosView T={T}/>;
     if (view === "financeiro") return <FinanceiroView T={T}/>;
+    if (view === "cupons") return <CuponsView T={T}/>;
     if (view === "dashboard") return <DashboardView clients={clients} lostClients={lostClients} isDark={isDark} T={T} onCardClick={openClientTab}/>;
     return <PlaceholderView icon={currentNav.icon} title={currentNav.label} description={`${currentNav.desc} Módulo em desenvolvimento.`} T={T}/>;
   };

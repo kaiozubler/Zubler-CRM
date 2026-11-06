@@ -150,7 +150,7 @@ export function Tabela({ T, colunas, linhas, vazio = "Nada por aqui.", onLinha }
   );
 }
 
-export function Modal({ T, titulo, onFechar, children }) {
+export function Modal({ T, titulo, onFechar, children, largura = 440 }) {
   return (
     <div
       onClick={onFechar}
@@ -158,7 +158,7 @@ export function Modal({ T, titulo, onFechar, children }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: T.surface, color: T.text, borderRadius: 12, padding: 20, width: "100%", maxWidth: 440, boxShadow: "0 20px 50px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", gap: 12 }}
+        style={{ background: T.surface, color: T.text, borderRadius: 12, padding: 20, width: "100%", maxWidth: largura, boxShadow: "0 20px 50px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", gap: 12 }}
       >
         <div style={{ fontSize: 15, fontWeight: 800 }}>{titulo}</div>
         {children}

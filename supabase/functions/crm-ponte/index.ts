@@ -32,6 +32,9 @@ const ROTAS: [string, RegExp][] = [
   ["POST", /^pagamentos$/],
   ["POST", new RegExp(`^pagamentos/${UUID}/status$`)],
   ["POST", new RegExp(`^contratacoes/${UUID}/ativar$`)],
+  ["GET", /^cupons$/],
+  ["POST", /^cupons$/],
+  ["PATCH", new RegExp(`^cupons/${UUID}$`)],
 ];
 
 function json(status: number, body: unknown) {

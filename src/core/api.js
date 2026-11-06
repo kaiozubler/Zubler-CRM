@@ -45,5 +45,8 @@ export const api = {
   pagamentos: () => ponte("GET", "pagamentos"),
   novoPagamento: (dados) => ponte("POST", "pagamentos", dados),
   statusPagamento: (id, status, motivo) => ponte("POST", `pagamentos/${id}/status`, { status, motivo }),
+  cupons: () => ponte("GET", "cupons"),
+  novoCupom: (dados) => ponte("POST", "cupons", dados),
+  editarCupom: (id, dados) => ponte("PATCH", `cupons/${id}`, dados),
   ativarContratacao: (id, medico_email) => ponte("POST", `contratacoes/${id}/ativar`, { medico_email }),
 };
