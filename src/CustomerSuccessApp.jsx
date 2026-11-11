@@ -5,8 +5,9 @@ import UsuariosView from "./core/UsuariosView.jsx";
 import FinanceiroView from "./core/FinanceiroView.jsx";
 import CuponsView from "./core/CuponsView.jsx";
 import { api } from "./core/api.js";
-import { Botao, Estado, ModalForm, Secao, Tabela, useCarregar } from "./core/ui.jsx";
-import { NovoPagamentoModal, colunasPagamentos } from "./core/FinanceiroView.jsx";
+import { Estado, useCarregar } from "./core/ui.jsx";
+import { carregarLead } from "./core/crmDados.js";
+import { DadosCliente, PlanoPagamentos, Timeline } from "./core/ClienteDetalhe.jsx";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -497,18 +498,6 @@ function PipeView({ clients, isDark, T, onLost, onMove, onRecarregar, carregando
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENT BROWSER TAB
 // ─────────────────────────────────────────────────────────────────────────────
-const ASSINATURA_LABEL = { ativa:"Ativa", inadimplente:"Inadimplente", cancelada:"Cancelada" };
-const CONTRATACAO_LABEL = { em_andamento:"Em andamento", aguardando_confirmacao:"Aguardando confirmação do pagamento", confirmada:"Confirmada" };
-
-function Info({ T, label, children, full }) {
-  return (
-    <div style={full ? { gridColumn:"1 / -1" } : undefined}>
-      <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{label}</div>
-      <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 10px", fontSize:11.5, fontWeight:600, color:T.text, minHeight:18, overflowWrap:"anywhere" }}>{children ?? "—"}</div>
-    </div>
-  );
-}
-
 function ResponsavelEditor({ client, T, sessaoEmail, donos, onSalvar }) {
   const [email, setEmail] = useState(client.ownerEmail ?? "");
   const [salvando, setSalvando] = useState(false);
@@ -543,66 +532,13 @@ function ResponsavelEditor({ client, T, sessaoEmail, donos, onSalvar }) {
   );
 }
 
-function FinanceiroCliente({ client, T, isDark, onRecarregar }) {
-  const c = client.raw;
-  const det = useCarregar(() => (client.tipo === "clinica" ? api.clinica(client.ref) : Promise.resolve(null)), [client.id]);
-  const [modal, setModal] = useState(null);
-  const a = det.dados?.assinatura;
-  const atualizar = () => { det.recarregar(); onRecarregar(); };
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:12 }}>
-        <Info T={T} label="Situação"><PagamentoTag pagamento={client.pagamento} isDark={isDark}/>{!client.pagamento && "Sem cobrança"}</Info>
-        <Info T={T} label="MRR">{fmtMrr(client.mrr)}</Info>
-        <Info T={T} label="Último pagamento">{c.pagamentos?.ultimo_data ? `${fmtDia(c.pagamentos.ultimo_data)} · ${fmtMrr(c.pagamentos.ultimo_valor)}` : "—"}</Info>
-        <Info T={T} label="Total pago">{fmtMrr(c.pagamentos?.total_pago)}</Info>
-        <Info T={T} label="Próxima cobrança">{fmtDia(c.proxima_cobranca)}</Info>
-        <Info T={T} label="Ciclo">{c.ciclo ? c.ciclo[0].toUpperCase() + c.ciclo.slice(1) : "—"}</Info>
-      </div>
-
-      {c.cancelamento_agendado_para && (
-        <div style={{ fontSize:12, color:"#D97706", fontWeight:600 }}>Cancelamento agendado para {fmtDia(c.cancelamento_agendado_para)}.</div>
-      )}
-
-      {c.contratacao && (
-        <Secao T={T} titulo="Contratação no app" acao={c.contratacao.pago_em && <Botao T={T} variante="primario" onClick={() => setModal("ativar")}>Ativar assinatura</Botao>}>
-          <div style={{ fontSize:12, color:T.textSub, lineHeight:1.6 }}>
-            {CONTRATACAO_LABEL[c.contratacao.status] ?? c.contratacao.status}
-            {c.contratacao.pago_em && ` · pago em ${fmtDia(c.contratacao.pago_em)}`}
-            {client.mrrPotencial != null && ` · ${fmtMrr(client.mrrPotencial)}/mês`}
-          </div>
-        </Secao>
-      )}
-
-      {client.tipo === "clinica" && (
-        <>
-          <Estado T={T} carregando={det.carregando && !det.dados} erro={det.erro} onTentar={det.recarregar}/>
-          {det.dados && (
-            <Secao T={T} titulo={a ? `Assinatura ${PLANOS[a.plano] ?? a.plano} · ${ASSINATURA_LABEL[a.status] ?? a.status} · ${a.medicos} médico(s), ${a.secretarias} secretária(s)` : "Pagamentos"}
-              acao={<Botao T={T} variante="primario" onClick={() => setModal("novo")}>Registrar pagamento</Botao>}>
-              <Tabela T={T} linhas={det.dados.pagamentos} vazio="Nenhum pagamento registrado." colunas={colunasPagamentos(T)}/>
-            </Secao>
-          )}
-        </>
-      )}
-
-      {modal === "novo" && <NovoPagamentoModal T={T} clinicaId={client.ref} onSalvo={atualizar} onFechar={() => setModal(null)}/>}
-      {modal === "ativar" && (
-        <ModalForm T={T} titulo={`Ativar ${client.name}`}
-          campos={[{ nome:"medico_email", label:"E-mail da conta do médico no app", tipo:"email", obrigatorio:true }]}
-          inicial={{ medico_email: c.contratacao.responsavel_email ?? c.email ?? "" }}
-          textoBotao="Criar assinatura"
-          onEnviar={(v) => api.ativarContratacao(c.contratacao.id, v.medico_email.trim()).then(onRecarregar)}
-          onFechar={() => setModal(null)}/>
-      )}
-    </div>
-  );
-}
-
 function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onResponsavel, onRecarregar }) {
   const [tab, setTab] = useState("dados");
   const c = client.raw;
+  // Detalhe da clínica (assinatura e pagamentos) e cadastro manual, usados por várias abas.
+  const det = useCarregar(() => (client.tipo === "clinica" ? api.clinica(client.ref) : Promise.resolve(null)), [client.id]);
+  const lead = useCarregar(() => carregarLead(client.id), [client.id]);
+  const potencial = client.mrrPotencial ?? (Number(lead.dados?.dados?.valor_potencial) || null);
   const funil = FUNNELS.find(f => f.id === client.funnel);
   const etapa = ALL_STAGES.find(s => s.id === client.stage);
 
@@ -633,7 +569,7 @@ function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onR
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(110px, 1fr))", gap:12, padding:"12px 20px", borderBottom:`1px solid ${T.border}`, background:T.bg, flexShrink:0 }}>
         {[
-          ["MRR", client.mrr > 0 || client.mrrPotencial == null ? fmtMrr(client.mrr) : `${fmtMrr(client.mrrPotencial)} pot.`, T.accentText],
+          ["MRR", client.mrr > 0 || potencial == null ? fmtMrr(client.mrr) : `${fmtMrr(potencial)} pot.`, T.accentText],
           ["Health", client.hs, hsColor(client.hs)],
           ["Último uso", c.dias_sem_login == null ? "—" : c.dias_sem_login === 0 ? "hoje" : `há ${c.dias_sem_login} dia(s)`, T.text],
           ["Equipe", `${c.membros} login(s)`, T.text],
@@ -656,34 +592,13 @@ function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onR
 
       <div style={{ padding:"16px 20px", flex:1, overflowY:"auto" }}>
         {tab === "dados" && (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:14, alignContent:"start" }}>
-            <Info T={T} label="Razão social / nome">{client.razao}</Info>
-            <Info T={T} label="CNPJ / CPF">{c.documento}</Info>
-            <Info T={T} label="E-mail">{c.email}</Info>
-            <Info T={T} label="Telefone">{c.telefone}</Info>
-            <Info T={T} label="Cidade">{[c.cidade, c.uf].filter(Boolean).join(" / ") || null}</Info>
-            <Info T={T} label="Plano">{client.plan}{c.ciclo ? ` · ${c.ciclo}` : ""}</Info>
-            <Info T={T} label="Assinatura">{c.assinatura_status ? ASSINATURA_LABEL[c.assinatura_status] ?? c.assinatura_status : "Sem assinatura"}</Info>
-            <Info T={T} label="Engajamento"><Badge status={client.status} isDark={isDark}/></Info>
-            <Info T={T} label={client.tipo === "contratacao" ? "Contratação iniciada" : "Conta criada"}>{fmtDia(c.criado_em)}</Info>
-            <Info T={T} label="Cliente desde">{fmtDia(c.cliente_desde)}</Info>
-            <Info T={T} label="Último login">{c.ultimo_login ? new Date(c.ultimo_login).toLocaleString("pt-BR") : "—"}</Info>
-            <Info T={T} label="Acesso">{c.acesso_bloqueado ? "Bloqueado" : "Liberado"}</Info>
-            {c.responsavel_nome && <Info T={T} label="Responsável na clínica">{c.responsavel_nome}</Info>}
-            {c.especialidade && <Info T={T} label="Especialidade">{c.especialidade}</Info>}
-            {c.como_conheceu && <Info T={T} label="Como conheceu">{c.como_conheceu}</Info>}
-            <div style={{ gridColumn:"1 / -1" }}>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Responsável na Zubler</div>
-              <ResponsavelEditor client={client} T={T} sessaoEmail={sessaoEmail} donos={donos} onSalvar={(email) => onResponsavel(client.id, email)}/>
-            </div>
-          </div>
+          <DadosCliente client={client} T={T} lead={lead} engajamento={<Badge status={client.status} isDark={isDark}/>}
+            responsavel={<ResponsavelEditor client={client} T={T} sessaoEmail={sessaoEmail} donos={donos} onSalvar={(email) => onResponsavel(client.id, email)}/>}/>
         )}
 
-        {tab === "financeiro" && <FinanceiroCliente client={client} T={T} isDark={isDark} onRecarregar={onRecarregar}/>}
+        {tab === "financeiro" && <PlanoPagamentos client={client} T={T} det={det} lead={lead.dados} onRecarregar={onRecarregar}/>}
 
-        {tab === "timeline" && (
-          <div style={{ textAlign:"center", padding:"40px 20px", color:T.textMuted, fontSize:13 }}>📅 Timeline em desenvolvimento</div>
-        )}
+        {tab === "timeline" && <Timeline client={client} T={T} det={det} sessaoEmail={sessaoEmail}/>}
 
         {tab === "neural" && (
           <div>

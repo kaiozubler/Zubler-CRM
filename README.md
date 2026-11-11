@@ -62,8 +62,19 @@ Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância cl
   - Filtros: ordenação (Nome, Health, MRR, Novo, Início), status, responsáveis (multiselect; com 2+ responsáveis, um funil por vez)
   - Contador da etapa com tooltip do MRR e botão "+" para automações
 - **Cliente**: abas no topbar, como num navegador (várias abertas ao mesmo tempo), tela cheia com
-  Dados (cadastro, plano, uso, responsável na Zubler), Financeiro (assinatura, pagamentos,
-  registrar pagamento, ativar contratação paga), Timeline, Neural Score, Atividades, Tickets
+  - Dados: cadastro do app + preenchimento manual ("Editar dados") do que o app não tem
+    (telefone, documento, cidade…) e qualificação do lead (origem, plano de interesse,
+    mensalidade potencial, decisor, próximo passo, observações). Campo que vem do app fica travado
+  - Financeiro: cartão do plano (status, mensalidade, ciclo, próxima cobrança, equipe), avisos de
+    atraso/cancelamento, jornada da contratação para leads, totais, mapa dos últimos 12 meses e
+    histórico de pagamentos (registrar pagamento, ativar contratação paga)
+  - Timeline: eventos do app (conta criada, pagamentos, virou cliente, último acesso, próximas
+    cobranças) + registros da equipe (nota, ligação, reunião, e-mail, WhatsApp, proposta),
+    com filtro Tudo/Equipe/App; cada um apaga só o que registrou
+  - Neural Score, Atividades, Tickets
+
+  O cadastro manual e a timeline ficam no banco do próprio CRM (tabelas `crm_lead_dados` e
+  `crm_timeline`, em `supabase/migrations/`), não no app.
 - **Lost**: motivo, data, multa, boletos pendentes, valor em aberto e observações; o cliente sai da pipe e aparece no Dashboard
 
 - **Cupons**: planos atuais do MediCopilot (lidos do app) e cupons de desconto da contratação —
