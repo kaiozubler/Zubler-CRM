@@ -65,9 +65,11 @@ Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância cl
   - Dados: cadastro do app + preenchimento manual ("Editar dados") do que o app não tem
     (telefone, documento, cidade…) e qualificação do lead (origem, plano de interesse,
     mensalidade potencial, decisor, próximo passo, observações). Campo que vem do app fica travado
-  - Financeiro: cartão do plano (status, mensalidade, ciclo, próxima cobrança, equipe), avisos de
-    atraso/cancelamento, jornada da contratação para leads, totais, mapa dos últimos 12 meses e
-    histórico de pagamentos (registrar pagamento, ativar contratação paga)
+  - Financeiro: cartão do plano (status, mensalidade, ciclo, próxima cobrança, equipe), vínculo com
+    o Asaas (ids de cliente e assinatura, sincronizar), cancelamento (agendar no fim do ciclo ou
+    cancelar agora, desfazer agendamento), jornada da contratação para leads, totais (recebido,
+    líquido, em aberto, vencido, estornado), mapa dos últimos 12 meses, cobranças com fatura e
+    estorno total/parcial, e lista de estornos
   - Timeline: eventos do app (conta criada, pagamentos, virou cliente, último acesso, próximas
     cobranças) + registros da equipe (nota, ligação, reunião, e-mail, WhatsApp, proposta),
     com filtro Tudo/Equipe/App; cada um apaga só o que registrou
@@ -75,7 +77,14 @@ Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância cl
 
   O cadastro manual e a timeline ficam no banco do próprio CRM (tabelas `crm_lead_dados` e
   `crm_timeline`, em `supabase/migrations/`), não no app.
-- **Lost**: motivo, data, multa, boletos pendentes, valor em aberto e observações; o cliente sai da pipe e aparece no Dashboard
+- **Lost**: motivo, data, multa, boletos pendentes, valor em aberto e observações; o cliente sai da pipe e aparece no Dashboard.
+  Com assinatura ativa, boletos e valor em aberto vêm das cobranças e dá para cancelar a assinatura no app/Asaas junto
+- **Financeiro**: resumo do mês (recebido, a receber, vencido, estornado), cobranças com filtros (situação, Asaas/manual,
+  busca), estornos, cancelamentos, inadimplentes e contratações pagas sem assinatura
+
+O Asaas é integrado no MediCopilot; o CRM lê e pede ações pela ponte. As rotas e campos novos que o app
+precisa ter estão em [`docs/contrato-financeiro.md`](docs/contrato-financeiro.md). Enquanto o app não tiver
+uma rota, o CRM avisa que a função ainda não existe; estorno total de pagamento manual usa a rota antiga.
 
 - **Cupons**: planos atuais do MediCopilot (lidos do app) e cupons de desconto da contratação —
   porcentagem, valor fixo, dias de teste grátis ou recurso adicional grátis; por plano ou para

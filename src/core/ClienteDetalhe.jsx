@@ -5,9 +5,13 @@
 import { useMemo, useState } from "react";
 import { api } from "./api.js";
 import { apagarEvento, listarTimeline, novoEvento, salvarLead } from "./crmDados.js";
-import { colunasPagamentos, NovoPagamentoModal } from "./FinanceiroView.jsx";
+import { NovoPagamentoModal } from "./FinanceiroView.jsx";
 import {
-  Botao, Estado, METODOS_ASAAS, Modal, ModalForm, Pilula, STATUS_ASAAS, Secao, Tabela, fmtData, fmtMoeda, useCarregar,
+  CancelarAssinaturaModal, ESTORNO_STATUS, EstornoModal, IdAsaas, STATUS, colunasCobrancas, colunasEstornos, estornosDe, metodoLabel,
+  normalizarCobranca, normalizarStatus, totais,
+} from "./financeiro.jsx";
+import {
+  Botao, Estado, Modal, ModalForm, Pilula, Secao, Tabela, fmtData, fmtMoeda, useCarregar,
 } from "./ui.jsx";
 
 const PLANOS = { free: "Free", basic: "Basic", pro: "Pro", enterprise: "Enterprise" };
@@ -41,11 +45,12 @@ function relativo(dias) {
 
 // Status de pagamento do app (pt) ou do Asaas (en) → um dos quatro grupos.
 function grupoPagamento(status) {
-  const s = STATUS_ASAAS[status] ?? status;
-  if (s === "recebido" || s === "confirmado") return "pago";
+  const s = normalizarStatus(status);
+  if (s === "cancelado") return null;
   if (s === "vencido") return "vencido";
-  if (s === "estornado" || s === "estorno pedido") return "estornado";
-  return "pendente";
+  if (s === "pendente") return "pendente";
+  if (STATUS[s].grupo === "estorno") return "estornado";
+  return "pago";
 }
 const GRUPOS = {
   pago: { label: "Pago", cor: "#16A34A" },
@@ -114,9 +119,10 @@ function UltimosMeses({ T, pagamentos }) {
     const porMes = {};
     const ordem = ["estornado", "pago", "pendente", "vencido"]; // o pior status do mês vence
     for (const p of pagamentos) {
-      if (!p.data) continue;
-      const k = String(p.data).slice(0, 7);
       const g = grupoPagamento(p.status);
+      const quando = p.vencimento ?? p.data;
+      if (!g || !quando) continue;
+      const k = String(quando).slice(0, 7);
       const m = (porMes[k] ??= { grupo: g, total: 0, qtd: 0 });
       m.qtd += 1;
       if (g === "pago") m.total += Number(p.valor) || 0;
@@ -158,21 +164,85 @@ function UltimosMeses({ T, pagamentos }) {
   );
 }
 
+function VinculoAsaas({ T, a, ehClinica, onSincronizar, sincronizando, erroSinc }) {
+  if (!ehClinica) return null;
+  return (
+    <div style={{ ...cartao(T), padding: "10px 14px", display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800, color: T.text }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: a?.asaas_customer_id ? "#16A34A" : T.border }} />Asaas
+      </div>
+      <IdAsaas T={T} rotulo="Cliente" valor={a?.asaas_customer_id} />
+      <IdAsaas T={T} rotulo="Assinatura" valor={a?.asaas_subscription_id} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <span style={{ fontSize: 9.5, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Sincronizado</span>
+        <span style={{ fontSize: 11.5, color: a?.asaas_sincronizado_em ? T.text : T.textMuted }}>
+          {a?.asaas_sincronizado_em ? new Date(a.asaas_sincronizado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—"}
+        </span>
+      </div>
+      <span style={{ flex: 1 }} />
+      {erroSinc && <span style={{ fontSize: 11, color: "#DC2626", maxWidth: 280 }}>{erroSinc}</span>}
+      <Botao T={T} onClick={onSincronizar} disabled={sincronizando}>{sincronizando ? "Sincronizando…" : "↻ Sincronizar com Asaas"}</Botao>
+    </div>
+  );
+}
+
+function Cancelamento({ T, a, c, onCancelar, onReativar, reativando, erro }) {
+  const agendado = a?.cancelamento_agendado_para ?? c.cancelamento_agendado_para;
+  const cancelada = a?.status === "cancelada" || a?.cancelada_em;
+  if (cancelada) {
+    return (
+      <Aviso cor="vermelho">
+        Assinatura cancelada{a.cancelada_em ? ` em ${fmtData(a.cancelada_em)}` : ""}
+        {a.cancelamento_motivo ? ` · ${a.cancelamento_motivo}` : ""}{a.cancelado_por ? ` · por ${a.cancelado_por}` : ""}.
+      </Aviso>
+    );
+  }
+  if (agendado) {
+    return (
+      <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", color: "#92400E", borderRadius: 8, padding: "9px 12px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ flex: 1 }}>
+          Cancelamento agendado para {fmtData(agendado)} ({relativo(diasAte(agendado))})
+          {a?.cancelamento_motivo ? ` · ${a.cancelamento_motivo}` : ""}{a?.cancelado_por ? ` · por ${a.cancelado_por}` : ""}. O acesso continua até lá.
+        </span>
+        {erro && <span style={{ color: "#DC2626" }}>{erro}</span>}
+        {a?.id && <Botao T={T} onClick={onReativar} disabled={reativando}>{reativando ? "Desfazendo…" : "Desfazer cancelamento"}</Botao>}
+      </div>
+    );
+  }
+  if (!a?.id || a.status === "cancelada") return null;
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <Botao T={T} variante="perigo" onClick={onCancelar}>Cancelar assinatura</Botao>
+    </div>
+  );
+}
+
 export function PlanoPagamentos({ client, T, det, lead, onRecarregar }) {
   const c = client.raw;
   const a = det?.dados?.assinatura;
-  const pagamentos = det?.dados?.pagamentos ?? [];
+  const cobrancas = useMemo(
+    () => (det?.dados?.pagamentos ?? []).map(normalizarCobranca).sort((x, y) => String(y.vencimento ?? y.pagoEm ?? "").localeCompare(String(x.vencimento ?? x.pagoEm ?? ""))),
+    [det?.dados],
+  );
+  const estornos = useMemo(() => estornosDe(cobrancas), [cobrancas]);
+  const t = totais(cobrancas);
   const [modal, setModal] = useState(null);
+  const [acao, setAcao] = useState({ rodando: null, erro: null });
   const atualizar = () => { det?.recarregar(); onRecarregar(); };
+  const rodar = async (nome, fn) => {
+    setAcao({ rodando: nome, erro: null });
+    try { await fn(); atualizar(); setAcao({ rodando: null, erro: null }); }
+    catch (e) { setAcao({ rodando: null, erro: { [nome]: e.message } }); }
+  };
 
   const ehLead = client.fase === "lead";
   const status = ASSINATURA[a?.status ?? c.assinatura_status];
   const plano = PLANOS[a?.plano] ?? client.plan;
   const potencialManual = Number(lead?.dados?.valor_potencial) || null;
   const mensalidade = client.mrr > 0 ? client.mrr : (client.mrrPotencial ?? potencialManual);
-  const diasCobranca = diasAte(c.proxima_cobranca);
-  const vencidas = c.pagamentos?.vencidas ?? pagamentos.filter((p) => grupoPagamento(p.status) === "vencido").length;
-  const pendentes = pagamentos.filter((p) => grupoPagamento(p.status) === "pendente");
+  const proxima = a?.proxima_cobranca ?? c.proxima_cobranca;
+  const diasCobranca = diasAte(proxima);
+  const vencidas = cobrancas.length ? t.qtdVencido : c.pagamentos?.vencidas ?? 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -194,9 +264,9 @@ export function PlanoPagamentos({ client, T, det, lead, onRecarregar }) {
         </div>
         <div style={{ flex: 1, minWidth: 240, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, alignContent: "center" }}>
           {[
-            ["Ciclo", capitalizar(c.ciclo) ?? "—"],
-            ["Próxima cobrança", c.proxima_cobranca ? fmtData(c.proxima_cobranca) : "—", relativo(diasCobranca), diasCobranca != null && diasCobranca < 0 ? "#DC2626" : null],
-            ["Cliente desde", fmtData(c.cliente_desde), c.cliente_desde ? relativo(diasAte(c.cliente_desde)) : null],
+            ["Ciclo", capitalizar(a?.ciclo ?? c.ciclo) ?? "—"],
+            ["Próxima cobrança", proxima ? fmtData(proxima) : "—", relativo(diasCobranca), diasCobranca != null && diasCobranca < 0 ? "#DC2626" : null],
+            ["Cliente desde", fmtData(a?.inicio ?? c.cliente_desde), (a?.inicio ?? c.cliente_desde) ? relativo(diasAte(a?.inicio ?? c.cliente_desde)) : null],
             ["Equipe", a ? `${a.medicos} médico(s)` : `${c.membros ?? 0} login(s)`, a ? `${a.secretarias} secretária(s)` : null],
           ].map(([l, v, sub, cor]) => (
             <div key={l}>
@@ -208,15 +278,17 @@ export function PlanoPagamentos({ client, T, det, lead, onRecarregar }) {
         </div>
       </div>
 
+      <VinculoAsaas T={T} a={a} ehClinica={client.tipo === "clinica" && !!det?.dados}
+        onSincronizar={() => rodar("sinc", () => api.sincronizarAsaas(client.ref))} sincronizando={acao.rodando === "sinc"} erroSinc={acao.erro?.sinc} />
+
       {(c.assinatura_status === "inadimplente" || vencidas > 0) && (
         <Aviso cor="vermelho">
           {c.assinatura_status === "inadimplente" ? "Assinatura inadimplente" : "Pagamento em atraso"}
-          {vencidas > 0 && ` · ${vencidas} cobrança(s) vencida(s)`}.
+          {vencidas > 0 && ` · ${vencidas} cobrança(s) vencida(s)`}{t.vencido > 0 && ` somando ${fmtMoeda(t.vencido)}`}.
         </Aviso>
       )}
-      {c.cancelamento_agendado_para && (
-        <Aviso cor="amarelo">Cancelamento agendado para {fmtData(c.cancelamento_agendado_para)} ({relativo(diasAte(c.cancelamento_agendado_para))}).</Aviso>
-      )}
+      <Cancelamento T={T} a={a} c={c} onCancelar={() => setModal("cancelar")}
+        onReativar={() => rodar("reativar", () => api.reativarAssinatura(a.id))} reativando={acao.rodando === "reativar"} erro={acao.erro?.reativar} />
 
       {/* Jornada da contratação (leads) */}
       {(ehLead || c.contratacao) && (
@@ -235,14 +307,14 @@ export function PlanoPagamentos({ client, T, det, lead, onRecarregar }) {
         </Secao>
       )}
 
-      {/* Pagamentos */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-        <Kpi T={T} label="Total pago" valor={fmtMoeda(c.pagamentos?.total_pago ?? 0)} />
-        <Kpi T={T} label="Último pagamento" valor={c.pagamentos?.ultimo_data ? fmtMoeda(c.pagamentos.ultimo_valor) : "—"}
-          detalhe={c.pagamentos?.ultimo_data ? `${fmtData(c.pagamentos.ultimo_data)} · ${relativo(diasAte(c.pagamentos.ultimo_data))}` : null} />
-        <Kpi T={T} label="Pendentes" valor={pendentes.length} detalhe={pendentes.length ? fmtMoeda(pendentes.reduce((s, p) => s + (Number(p.valor) || 0), 0)) : null}
-          cor={pendentes.length ? "#D97706" : null} />
-        <Kpi T={T} label="Vencidas" valor={vencidas} cor={vencidas ? "#DC2626" : "#16A34A"} />
+      {/* Totais */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        <Kpi T={T} label="Recebido" valor={fmtMoeda(cobrancas.length ? t.recebido : c.pagamentos?.total_pago ?? 0)}
+          detalhe={c.pagamentos?.ultimo_data ? `último ${fmtData(c.pagamentos.ultimo_data)}` : null} />
+        <Kpi T={T} label="Líquido" valor={cobrancas.length ? fmtMoeda(t.liquido) : "—"} detalhe="após taxas e estornos" />
+        <Kpi T={T} label="Em aberto" valor={fmtMoeda(t.aberto)} detalhe={t.qtdAberto ? `${t.qtdAberto} cobrança(s)` : null} cor={t.qtdAberto ? "#D97706" : null} />
+        <Kpi T={T} label="Vencido" valor={fmtMoeda(t.vencido)} detalhe={vencidas ? `${vencidas} cobrança(s)` : null} cor={vencidas ? "#DC2626" : "#16A34A"} />
+        <Kpi T={T} label="Estornado" valor={fmtMoeda(t.estornado)} detalhe={estornos.length ? `${estornos.length} estorno(s)` : null} cor={t.estornado ? "#6B7280" : null} />
       </div>
 
       {client.tipo === "clinica" && (
@@ -250,17 +322,24 @@ export function PlanoPagamentos({ client, T, det, lead, onRecarregar }) {
           <Estado T={T} carregando={det.carregando && !det.dados} erro={det.erro} onTentar={det.recarregar} />
           {det.dados && (
             <>
-              <UltimosMeses T={T} pagamentos={pagamentos} />
-              <Secao T={T} titulo={`Histórico de pagamentos (${pagamentos.length})`}
-                acao={<Botao T={T} variante="primario" onClick={() => setModal("novo")}>Registrar pagamento</Botao>}>
-                <Tabela T={T} linhas={[...pagamentos].sort((x, y) => String(y.data).localeCompare(String(x.data)))} vazio="Nenhum pagamento registrado." colunas={colunasPagamentos(T)} />
+              <UltimosMeses T={T} pagamentos={cobrancas} />
+              <Secao T={T} titulo={`Cobranças (${cobrancas.length})`}
+                acao={<Botao T={T} variante="primario" onClick={() => setModal("novo")}>Registrar pagamento manual</Botao>}>
+                <Tabela T={T} linhas={cobrancas} vazio="Nenhuma cobrança." colunas={colunasCobrancas(T, { onEstornar: (cb) => setModal({ estornar: cb }) })} />
               </Secao>
+              {estornos.length > 0 && (
+                <Secao T={T} titulo={`Estornos (${estornos.length}) · ${fmtMoeda(t.estornado)}`}>
+                  <Tabela T={T} linhas={estornos} colunas={colunasEstornos(T)} />
+                </Secao>
+              )}
             </>
           )}
         </>
       )}
 
       {modal === "novo" && <NovoPagamentoModal T={T} clinicaId={client.ref} onSalvo={atualizar} onFechar={() => setModal(null)} />}
+      {modal?.estornar && <EstornoModal T={T} cobranca={modal.estornar} onFeito={atualizar} onFechar={() => setModal(null)} />}
+      {modal === "cancelar" && <CancelarAssinaturaModal T={T} nome={client.name} assinatura={{ ...a, proxima_cobranca: proxima }} onFeito={atualizar} onFechar={() => setModal(null)} />}
       {modal === "ativar" && (
         <ModalForm T={T} titulo={`Ativar ${client.name}`}
           campos={[{ nome: "medico_email", label: "E-mail da conta do médico no app", tipo: "email", obrigatorio: true }]}
@@ -497,7 +576,7 @@ const TIPOS = {
 };
 const TIPOS_MANUAIS = ["nota", "ligacao", "reuniao", "email", "whatsapp", "proposta", "outro"];
 
-function eventosDoApp(client, pagamentos) {
+function eventosDoApp(client, pagamentos, assinatura) {
   const c = client.raw;
   const ev = [];
   const add = (data, icone, cor, titulo, descricao) => data && ev.push({ id: `app-${ev.length}`, origem: "app", data, icone, cor, titulo, descricao });
@@ -505,16 +584,19 @@ function eventosDoApp(client, pagamentos) {
     [c.como_conheceu && `Como conheceu: ${c.como_conheceu}`, c.especialidade].filter(Boolean).join(" · ") || null);
   if (c.contratacao?.pago_em) add(c.contratacao.pago_em, "💳", "#16A34A", "Pagamento da contratação confirmado", client.mrrPotencial != null ? `${fmtMoeda(client.mrrPotencial)}/mês` : null);
   add(c.cliente_desde, "🎉", "#16A34A", `Virou cliente · plano ${client.plan}`, c.ciclo ? `Ciclo ${c.ciclo}` : null);
-  for (const p of pagamentos) {
-    const g = grupoPagamento(p.status);
-    const metodo = METODOS_ASAAS[p.metodo] ?? capitalizar(p.metodo);
-    add(p.data, "$", GRUPOS[g].cor, `Pagamento ${GRUPOS[g].label.toLowerCase()} · ${fmtMoeda(p.valor)}`,
-      [metodo, p.origem === "manual" ? "registrado à mão" : "Asaas", p.referencia].filter(Boolean).join(" · "));
+  for (const p of pagamentos.map(normalizarCobranca)) {
+    const st = STATUS[p.status];
+    const meta = [metodoLabel(p.metodo), p.origem === "manual" ? "registrado à mão" : "Asaas", p.referencia].filter(Boolean).join(" · ");
+    if (p.pagoEm) add(p.pagoEm, "$", "#16A34A", `Pagamento recebido · ${fmtMoeda(p.valor)}`, meta);
+    else if (p.status !== "cancelado") add(p.vencimento, "$", st.hex, `Cobrança ${st.label.toLowerCase()} · ${fmtMoeda(p.valor)}`, `vence ${fmtData(p.vencimento)} · ${meta}`);
+    for (const e of p.estornos) add(e.data, "↩", "#6B7280", `Estorno ${ESTORNO_STATUS[e.status]?.[1]?.toLowerCase() ?? ""} · ${fmtMoeda(e.valor)}`, [e.motivo, e.autor].filter(Boolean).join(" · "));
   }
+  const a = assinatura ?? {};
+  add(a.cancelada_em, "✕", "#DC2626", "Assinatura cancelada", [a.cancelamento_motivo, a.cancelado_por && `por ${a.cancelado_por}`].filter(Boolean).join(" · ") || null);
   add(c.ultimo_login, "↪", "#6B7280", "Último acesso ao app", c.dias_sem_login ? `${c.dias_sem_login} dia(s) sem login` : null);
-  const jaCobrada = pagamentos.some((p) => String(p.data).slice(0, 10) === String(c.proxima_cobranca).slice(0, 10));
+  const jaCobrada = pagamentos.some((p) => String(p.vencimento ?? p.data).slice(0, 10) === String(c.proxima_cobranca).slice(0, 10));
   if (c.proxima_cobranca && diasAte(c.proxima_cobranca) >= 0 && !jaCobrada) add(c.proxima_cobranca, "🗓", "#D97706", "Próxima cobrança", null);
-  add(c.cancelamento_agendado_para, "⚠", "#DC2626", "Cancelamento agendado", null);
+  add(a.cancelamento_agendado_para ?? c.cancelamento_agendado_para, "⚠", "#DC2626", "Cancelamento agendado", a.cancelamento_motivo ?? null);
   if (c.lost?.date) add(c.lost.date, "✕", "#DC2626", "Marcado como lost", c.lost.reason ?? null);
   return ev;
 }
@@ -576,7 +658,7 @@ export function Timeline({ client, T, det, sessaoEmail }) {
   const [filtro, setFiltro] = useState("tudo");
 
   const eventos = useMemo(() => {
-    const doApp = eventosDoApp(client, det?.dados?.pagamentos ?? []);
+    const doApp = eventosDoApp(client, det?.dados?.pagamentos ?? [], det?.dados?.assinatura);
     const daEquipe = (manuais.dados ?? []).map((e) => ({
       id: e.id, origem: "equipe", data: e.data, icone: TIPOS[e.tipo]?.icone ?? "•", cor: TIPOS[e.tipo]?.cor ?? "#6B7280",
       titulo: e.titulo, descricao: e.descricao, tipo: TIPOS[e.tipo]?.label, autor: e.autor_email,

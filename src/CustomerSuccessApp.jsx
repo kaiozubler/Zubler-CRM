@@ -8,6 +8,7 @@ import { api } from "./core/api.js";
 import { Estado, useCarregar } from "./core/ui.jsx";
 import { carregarLead } from "./core/crmDados.js";
 import { DadosCliente, PlanoPagamentos, Timeline } from "./core/ClienteDetalhe.jsx";
+import { CamposCancelamento, cancelamentoInicial, normalizarCobranca } from "./core/financeiro.jsx";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -753,7 +754,27 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
     fine: "", pendingBills: "", pendingAmount: "", notes: "",
   });
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
-  const field = { width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
+
+  // Cliente com assinatura ativa: cancelar no app/Asaas junto com o lost e
+  // preencher boletos e valor em aberto com as cobranças pendentes/vencidas.
+  const cli = clients.find(c => c.id === form.clientId);
+  const temAssinatura = cli?.tipo === "clinica" && ["ativa", "inadimplente"].includes(cli.raw?.assinatura_status);
+  const det = useCarregar(() => (temAssinatura ? api.clinica(cli.ref) : Promise.resolve(null)), [form.clientId]);
+  const assinatura = det.dados?.assinatura;
+  const [cancelar, setCancelar] = useState(true);
+  const [canc, setCanc] = useState(cancelamentoInicial);
+  useEffect(() => {
+    if (!det.dados) return;
+    const abertas = (det.dados.pagamentos ?? []).map(normalizarCobranca).filter(c => c.status === "pendente" || c.status === "vencido");
+    setForm(f => ({
+      ...f,
+      pendingBills: f.pendingBills === "" ? String(abertas.length) : f.pendingBills,
+      pendingAmount: f.pendingAmount === "" ? String(abertas.reduce((s, c) => s + c.valor, 0)) : f.pendingAmount,
+    }));
+  }, [det.dados]);
+  const vaiCancelar = temAssinatura && cancelar && assinatura?.id && !assinatura.cancelada_em;
+
+  const field = { width:"100%", boxSizing:"border-box", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
   const Label = ({ children }) => <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5 }}>{children}</div>;
 
   const [salvando, setSalvando] = useState(false);
@@ -763,7 +784,11 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
     setSalvando(true); setErro(null);
     try { await enviar(); } catch (e) { setErro(e.message); setSalvando(false); }
   };
-  const enviar = () => {
+  const enviar = async () => {
+    if (vaiCancelar) {
+      await api.cancelarAssinatura(assinatura.id, { ...canc, motivo: form.reason, observacao: form.notes || "" })
+        .catch(e => { throw new Error(`Assinatura não cancelada, lost não marcado: ${e.message}`); });
+    }
     return onConfirm(form.clientId, {
       reason: form.reason, date: form.date, notes: form.notes || null,
       fine: Number(form.fine) || 0, pendingBills: Number(form.pendingBills) || 0, pendingAmount: Number(form.pendingAmount) || 0,
@@ -772,7 +797,7 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
 
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", backdropFilter:"blur(3px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ width:"100%", maxWidth:460, background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:"0 20px 50px rgba(0,0,0,0.25)", overflow:"hidden" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:"0 20px 50px rgba(0,0,0,0.25)", overflow:"hidden" }}>
         <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <span style={{ fontSize:14, fontWeight:800, color:"#DC2626" }}>Marcar cliente como lost</span>
           <button onClick={onClose} style={{ background:"transparent", border:"none", fontSize:16, color:T.textMuted, cursor:"pointer" }}>✕</button>
@@ -810,6 +835,18 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
             <Label>Observações</Label>
             <textarea rows={3} value={form.notes} onChange={set("notes")} placeholder="Detalhes do cancelamento…" style={{ ...field, resize:"vertical" }}/>
           </div>
+          {temAssinatura && (
+            <div style={{ gridColumn:"1 / -1", border:`1px solid ${T.border}`, borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:10 }}>
+              <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, fontWeight:700, color:T.text, cursor:"pointer" }}>
+                <input type="checkbox" checked={cancelar} onChange={e => setCancelar(e.target.checked)} disabled={!assinatura?.id}/>
+                Cancelar também a assinatura no app e no Asaas
+              </label>
+              {det.carregando && <span style={{ fontSize:11, color:T.textMuted }}>Carregando assinatura…</span>}
+              {det.erro && <span style={{ fontSize:11, color:"#DC2626" }}>{det.erro}</span>}
+              {assinatura?.cancelada_em && <span style={{ fontSize:11, color:T.textMuted }}>A assinatura já está cancelada.</span>}
+              {vaiCancelar && <CamposCancelamento T={T} valor={canc} onChange={setCanc} proximaCobranca={assinatura.proxima_cobranca} comMotivo={false}/>}
+            </div>
+          )}
         </div>
         <div style={{ padding:"12px 18px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"flex-end", gap:8 }}>
           <button onClick={onClose} style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${T.border}`, background:"transparent", color:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Cancelar</button>

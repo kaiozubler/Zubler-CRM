@@ -28,7 +28,15 @@ async function ponte(metodo, caminho, corpo) {
     body: corpo ? JSON.stringify(corpo) : undefined,
   });
   const json = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(json.error || `Erro ${resp.status} ao falar com o app.`);
+  if (!resp.ok) {
+    // 404 do app (página HTML) ou da ponte: a rota ainda não existe no MediCopilot.
+    if (resp.status === 404 && (!json.error || /Rota não permitida/.test(json.error))) {
+      const e = new Error("O app ainda não tem essa função. Veja docs/contrato-financeiro.md.");
+      e.semRota = true;
+      throw e;
+    }
+    throw new Error(json.error || `Erro ${resp.status} ao falar com o app.`);
+  }
   return json;
 }
 
@@ -50,5 +58,9 @@ export const api = {
   editarCupom: (id, dados) => ponte("PATCH", `cupons/${id}`, dados),
   pipe: () => ponte("GET", "pipe"),
   salvarPipe: (id, dados) => ponte("PATCH", `pipe/${id}`, dados),
+  estornarPagamento: (id, dados) => ponte("POST", `pagamentos/${id}/estorno`, dados),
+  cancelarAssinatura: (id, dados) => ponte("POST", `assinaturas/${id}/cancelar`, dados),
+  reativarAssinatura: (id) => ponte("POST", `assinaturas/${id}/reativar`, {}),
+  sincronizarAsaas: (clinicaId) => ponte("POST", `clinicas/${clinicaId}/asaas/sincronizar`, {}),
   ativarContratacao: (id, medico_email) => ponte("POST", `contratacoes/${id}/ativar`, { medico_email }),
 };
