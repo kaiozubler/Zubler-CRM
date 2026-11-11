@@ -35,6 +35,8 @@ const ROTAS: [string, RegExp][] = [
   ["GET", /^cupons$/],
   ["POST", /^cupons$/],
   ["PATCH", new RegExp(`^cupons/${UUID}$`)],
+  ["GET", /^pipe$/],
+  ["PATCH", new RegExp(`^pipe/${UUID}$`)],
 ];
 
 function json(status: number, body: unknown) {

@@ -4,6 +4,9 @@ import ClinicasView from "./core/ClinicasView.jsx";
 import UsuariosView from "./core/UsuariosView.jsx";
 import FinanceiroView from "./core/FinanceiroView.jsx";
 import CuponsView from "./core/CuponsView.jsx";
+import { api } from "./core/api.js";
+import { Botao, Estado, ModalForm, Secao, Tabela, useCarregar } from "./core/ui.jsx";
+import { NovoPagamentoModal, colunasPagamentos } from "./core/FinanceiroView.jsx";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -35,24 +38,67 @@ const ONGOING_STAGES = [
   { id:"expansao", name:"Expansão" }, { id:"renovacao", name:"Renovação" },
   { id:"risco", name:"Risco" }, { id:"sucesso", name:"Sucesso" },
 ];
-const ALL_STAGES = [...ONBOARDING_STAGES, ...ONGOING_STAGES];
-
-const INITIAL_CLIENTS = [
-  { id:1, name:"Acme Corp", razao:"Acme Comércio Ltda", hs:87, mrr:4800, status:"engaged", owner:"Ana S.", ownerInit:"AS", ownerHue:0, funnel:"ongoing", stage:"customer-success", plan:"Pro", launchDate:"2024-01-15" },
-  { id:2, name:"Betasoft", razao:"Betasoft Tecnologia S.A.", hs:62, mrr:2200, status:"warm", owner:"Carlos M.", ownerInit:"CM", ownerHue:160, funnel:"ongoing", stage:"ativacao", plan:"Starter", launchDate:"2024-03-10" },
-  { id:3, name:"Gamma Log.", razao:"Gamma Log. e Transp. EIRELI", hs:34, mrr:6500, status:"cold", owner:"Ana S.", ownerInit:"AS", ownerHue:0, funnel:"ongoing", stage:"risco", plan:"Enterprise", launchDate:"2023-11-20" },
-  { id:4, name:"Delta RH", razao:"Delta Recursos Humanos Ltda", hs:91, mrr:3100, status:"engaged", owner:"Bruna L.", ownerInit:"BL", ownerHue:280, funnel:"ongoing", stage:"expansao", plan:"Pro", launchDate:"2024-02-08" },
-  { id:5, name:"Épsilon Tech", razao:"Épsilon Tecnologia EIRELI", hs:55, mrr:1800, status:"warm", owner:"Carlos M.", ownerInit:"CM", ownerHue:160, funnel:"onboarding", stage:"capacitacao", plan:"Starter", launchDate:"2024-05-01" },
-  { id:6, name:"Zeta Saúde", razao:"Zeta Saúde e Bem-Estar S.A.", hs:78, mrr:5200, status:"engaged", owner:"Bruna L.", ownerInit:"BL", ownerHue:280, funnel:"onboarding", stage:"kickoff", plan:"Pro", launchDate:"2024-04-22" },
-  { id:7, name:"Eta Seguros", razao:"Eta Seguros e Previdência Ltda", hs:22, mrr:9100, status:"cold", owner:"Ana S.", ownerInit:"AS", ownerHue:0, funnel:"ongoing", stage:"risco", plan:"Enterprise", launchDate:"2023-09-05" },
-  { id:8, name:"Theta Edtech", razao:"Theta Educação Digital Ltda", hs:95, mrr:2700, status:"engaged", owner:"Carlos M.", ownerInit:"CM", ownerHue:160, funnel:"ongoing", stage:"sucesso", plan:"Pro", launchDate:"2024-01-30" },
+// Leads: contas criadas sem assinatura e contratações abertas no app.
+const LEADS_STAGES = [
+  { id:"cadastro", name:"Conta criada" }, { id:"contratando", name:"Contratando" },
+  { id:"aguardando-pagamento", name:"Aguardando pgto" }, { id:"pago", name:"Pago · ativar" },
 ];
+const FUNNELS = [
+  { id:"leads", name:"Leads", stages: LEADS_STAGES },
+  { id:"onboarding", name:"Onboarding", stages: ONBOARDING_STAGES },
+  { id:"ongoing", name:"Ongoing", stages: ONGOING_STAGES },
+];
+const ALL_STAGES = FUNNELS.flatMap(f => f.stages.map(s => ({ ...s, funnel: f.id })));
+const funnelOf = (stageId) => ALL_STAGES.find(s => s.id === stageId)?.funnel;
+
+// Card da ponte (/pipe no app) → formato usado pelas telas.
+const SEM_RESPONSAVEL = "Sem responsável";
+const hueOf = (texto) => [...(texto ?? "")].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
+const nomeDoEmail = (email) => {
+  const local = (email ?? "").split("@")[0].replace(/[._-]+/g, " ").trim();
+  return local ? local.replace(/\b\w/g, (l) => l.toUpperCase()) : SEM_RESPONSAVEL;
+};
+const iniciais = (nome) => nome === SEM_RESPONSAVEL ? "—" : nome.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]).join("").toUpperCase();
+const PLANOS = { free: "Free", basic: "Basic", pro: "Pro", enterprise: "Enterprise" };
+
+function pagamentoDe(c) {
+  if (c.assinatura_status === "inadimplente") return { label:"Inadimplente", cor:"red" };
+  if (c.pagamentos?.vencidas > 0) return { label:`${c.pagamentos.vencidas} vencida(s)`, cor:"red" };
+  if (c.assinatura_status === "ativa") return { label:"Em dia", cor:"green" };
+  if (c.contratacao?.pago_em) return { label:"Pago, sem ativar", cor:"blue" };
+  if (c.contratacao?.status === "aguardando_confirmacao") return { label:"Aguardando pgto", cor:"amber" };
+  return null;
+}
+
+export function cardParaCliente(c) {
+  const owner = c.responsavel ? nomeDoEmail(c.responsavel) : SEM_RESPONSAVEL;
+  return {
+    id: c.chave, ref: c.id, tipo: c.tipo, fase: c.fase,
+    name: c.nome, razao: c.razao_social || c.nome,
+    hs: c.hs, mrr: c.mrr ?? 0, mrrPotencial: c.mrr_potencial,
+    status: c.engajamento, owner, ownerEmail: c.responsavel, ownerInit: iniciais(owner), ownerHue: c.responsavel ? hueOf(c.responsavel) : 220,
+    funnel: c.funil, stage: c.etapa, plan: PLANOS[c.plano] ?? c.plano ?? "—",
+    launchDate: c.cliente_desde || c.criado_em, pagamento: pagamentoDe(c), lost: c.lost, raw: c,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 const hsColor = (v) => v >= 75 ? "#16A34A" : v >= 50 ? "#D97706" : "#DC2626";
-const fmtMrr = (v) => "R$\u00a0" + v.toLocaleString("pt-BR");
+const fmtMrr = (v) => "R$\u00a0" + Number(v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+const fmtDia = (v) => v ? new Date(v.length === 10 ? v + "T00:00" : v).toLocaleDateString("pt-BR") : "\u2014";
+const PAG_CORES = {
+  red: { light:{ bg:"#FEF2F2", text:"#DC2626" }, dark:{ bg:"#3B0D0D", text:"#FCA5A5" } },
+  green: { light:{ bg:"#F0FDF4", text:"#16A34A" }, dark:{ bg:"#0D2B1F", text:"#6EE7B7" } },
+  amber: { light:{ bg:"#FFFBEB", text:"#D97706" }, dark:{ bg:"#2D1F00", text:"#FCD34D" } },
+  blue: { light:{ bg:"#EFF6FF", text:"#2563EB" }, dark:{ bg:"#0D1F3D", text:"#93C5FD" } },
+};
+function PagamentoTag({ pagamento, isDark }) {
+  if (!pagamento) return null;
+  const col = PAG_CORES[pagamento.cor][isDark ? "dark" : "light"];
+  return <span style={{ fontSize:9.5, padding:"1px 7px", borderRadius:20, fontWeight:700, background:col.bg, color:col.text, whiteSpace:"nowrap" }}>$ {pagamento.label}</span>;
+}
 const statusCfg = {
   engaged: { label:"Engajado", light:{ bg:"#F0FDF4", text:"#16A34A" }, dark:{ bg:"#0D2B1F", text:"#6EE7B7" } },
   warm: { label:"Morno", light:{ bg:"#FFFBEB", text:"#D97706" }, dark:{ bg:"#2D1F00", text:"#FCD34D" } },
@@ -99,11 +145,19 @@ function KanbanCard({ client, isDark, T, onDragStart, onCardClick }) {
         <Badge status={client.status} isDark={isDark}/>
       </div>
       <HsBar value={client.hs} isDark={isDark}/>
+      {(client.pagamento || client.plan) && (
+        <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:7, flexWrap:"wrap" }}>
+          <span style={{ fontSize:9.5, fontWeight:600, color:T.textMuted }}>{client.plan}</span>
+          <PagamentoTag pagamento={client.pagamento} isDark={isDark}/>
+        </div>
+      )}
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:8 }}>
-        <span style={{ fontSize:11, fontWeight:600, color:T.textSub }}>{fmtMrr(client.mrr)}</span>
+        {client.mrr > 0 || client.mrrPotencial == null
+          ? <span style={{ fontSize:11, fontWeight:600, color:T.textSub }}>{fmtMrr(client.mrr)}</span>
+          : <span title="Mensalidade da contratação (ainda não é receita)" style={{ fontSize:11, fontWeight:600, color:T.textMuted, fontStyle:"italic" }}>{fmtMrr(client.mrrPotencial)} pot.</span>}
         <div style={{ display:"flex", alignItems:"center", gap:5 }}>
           <Avatar initials={client.ownerInit} hue={client.ownerHue} size={18}/>
-          <span style={{ fontSize:10, color:T.textMuted }}>{client.owner.split(" ")[0]}</span>
+          <span style={{ fontSize:10, color:T.textMuted }}>{client.ownerEmail ? client.owner.split(" ")[0] : "sem resp."}</span>
         </div>
       </div>
     </div>
@@ -112,7 +166,7 @@ function KanbanCard({ client, isDark, T, onDragStart, onCardClick }) {
 
 function KanbanColumn({ stage, clients, isDark, T, dragOverId, onDragStart, onDragOver, onDrop, onCardClick, groupBy }) {
   const isOver = dragOverId === stage.id;
-  const mrr = clients.reduce((s,c)=>s+c.mrr,0);
+  const mrr = clients.reduce((s,c)=>s+(c.mrr || c.mrrPotencial || 0),0);
   const [expanded, setExpanded] = useState({});
   const [showTooltip, setShowTooltip] = useState(false);
 
@@ -205,8 +259,8 @@ function KanbanColumn({ stage, clients, isDark, T, dragOverId, onDragStart, onDr
   );
 }
 
-function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedClient, openClientTab, closeClientTab, switchTab }) {
-  const [pipeMode, setPipeMode] = useState("both");
+function PipeView({ clients, isDark, T, onLost, onMove, onRecarregar, carregando, erro, openClientTab }) {
+  const [pipeMode, setPipeMode] = useState("all");
   const [sortBy, setSortBy] = useState("name");
   const [filterSt, setFilter] = useState("all");
   const [filterUsers, setFilterUsers] = useState([]);
@@ -216,12 +270,12 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
   const [layoutMode, setLayoutMode] = useState("vertical");
   const [groupBy, setGroupBy] = useState("none");
   const [showGroup, setShowGroup] = useState(false);
-  const singleFunnel = pipeMode !== "both";
+  const singleFunnel = pipeMode !== "all";
   const groupOptions = [["none","Sem agrupamento"],["owner","Responsável"],["status","Status"],["plan","Plano"]];
 
   // Com mais de um responsável filtrado, só um funil por vez
   useEffect(() => {
-    if (filterUsers.length > 1 && pipeMode === "both") setPipeMode("onboarding");
+    if (filterUsers.length > 1 && pipeMode === "all") setPipeMode("ongoing");
   }, [filterUsers, pipeMode]);
   // Agrupar por status/plano só está disponível com um único funil
   useEffect(() => {
@@ -236,12 +290,10 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
 
   const handleDrop = useCallback((stageId) => {
     if (dragId == null) return;
-    const stage = ALL_STAGES.find(s => s.id === stageId);
-    if (!stage) return;
-    const funnelOfStage = ONBOARDING_STAGES.find(s=>s.id===stageId) ? "onboarding" : "ongoing";
-    setClients(prev => prev.map(c => c.id === dragId ? { ...c, stage: stageId, funnel: funnelOfStage } : c));
+    const funnel = funnelOf(stageId);
+    if (funnel) onMove(dragId, funnel, stageId);
     setDragId(null); setDragOver(null);
-  }, [dragId, setClients]);
+  }, [dragId, onMove]);
 
   const filtered = (() => {
     let list = filterSt === "all" ? [...clients] : clients.filter(c=>c.status===filterSt);
@@ -267,18 +319,24 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
   );
 
   const colProps = { isDark, T, dragOverId:dragOver, onDragStart:setDragId, onDragOver:setDragOver, onDrop:handleDrop, onCardClick: openClientTab, groupBy };
-  const ob = filtered.filter(c=>c.funnel==="onboarding");
-  const og = filtered.filter(c=>c.funnel==="ongoing");
+  const visiveis = FUNNELS.filter(f => pipeMode === "all" || pipeMode === f.id);
+  const colunas = (f) => f.stages.map(st => (
+    <KanbanColumn key={st.id} stage={st} clients={filtered.filter(c => c.funnel === f.id && c.stage === st.id)} {...colProps}/>
+  ));
 
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", backgroundColor: T.surface, position:"relative" }}>
       <div style={{ padding:"8px 16px", background:T.surface, borderBottom:`1px solid ${T.border}`,
         display:"flex", alignItems:"center", gap:10, flexShrink:0, position:"relative" }}>
         <div style={{ display:"flex", gap:3, alignItems:"center" }}>
-          {[["both","Todos funis"],["onboarding","Onboarding"],["ongoing","Ongoing"]].map(([v,l])=>(
-            <Pill key={v} val={v} cur={pipeMode} onChange={setPipeMode} label={l} disabled={filterUsers.length > 1 && v === "both"}/>
+          {[["all","Todos funis"], ...FUNNELS.map(f => [f.id, f.name])].map(([v,l])=>(
+            <Pill key={v} val={v} cur={pipeMode} onChange={setPipeMode} label={l} disabled={filterUsers.length > 1 && v === "all"}/>
           ))}
         </div>
+        <span style={{ fontSize:11, color:T.textMuted }}>
+          {carregando ? "Carregando do app…" : `${filtered.filter(c => visiveis.some(f => f.id === c.funnel)).length} cliente(s)`}
+        </span>
+        <button onClick={onRecarregar} disabled={carregando} title="Recarregar dados do app" style={{ padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:600, cursor:"pointer", border:`1.5px solid ${T.border}`, background:"transparent", color:T.textSub, fontFamily:"inherit" }}>↻ Atualizar</button>
         
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6, position:"relative" }}>
           <button onClick={() => { setShowGroup(!showGroup); setShowFilters(false); }} title="Agrupar por" 
@@ -395,46 +453,39 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
       <div style={{ flex:1, display:"flex", overflow:"hidden", gap:0 }}>
         {/* Pipe */}
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
+          {erro && (
+            <div style={{ margin:"12px 16px 0", padding:"10px 12px", borderRadius:8, border:"1px solid #FCA5A5", background: isDark ? "#3B0D0D" : "#FEF2F2", color:"#DC2626", fontSize:12, display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ flex:1 }}>Não foi possível carregar os clientes do app: {erro}</span>
+              <button onClick={onRecarregar} style={{ border:"1px solid #DC2626", background:"transparent", color:"#DC2626", borderRadius:6, padding:"3px 10px", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Tentar de novo</button>
+            </div>
+          )}
           {layoutMode === "vertical" ? (
             <div onDragEnd={() => { setDragId(null); setDragOver(null); }}
               style={{ flex:1, overflowX:"auto", overflowY:"hidden", padding:"12px 16px", display:"flex", gap:10 }}>
-              {(pipeMode==="both" || pipeMode==="onboarding") && ONBOARDING_STAGES.map(st=>(
-                <KanbanColumn key={st.id} stage={st} clients={ob.filter(c=>c.stage===st.id)} {...colProps}/>
-              ))}
-              {pipeMode==="both" && (
-                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", flexShrink:0, gap:0 }}>
-                  <div style={{ flex:1, width:1, background:T.border }}/>
-                  <span style={{ fontSize:9, fontWeight:700, color:T.textMuted, writingMode:"vertical-lr", transform:"rotate(180deg)", padding:"8px 0", letterSpacing:2, textTransform:"uppercase" }}>funis</span>
-                  <div style={{ flex:1, width:1, background:T.border }}/>
+              {visiveis.map((f, i) => (
+                <div key={f.id} style={{ display:"flex", gap:10 }}>
+                  {i > 0 && (
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", flexShrink:0, gap:0 }}>
+                      <div style={{ flex:1, width:1, background:T.border }}/>
+                      <span style={{ fontSize:9, fontWeight:700, color:T.textMuted, writingMode:"vertical-lr", transform:"rotate(180deg)", padding:"8px 0", letterSpacing:2, textTransform:"uppercase" }}>{f.name}</span>
+                      <div style={{ flex:1, width:1, background:T.border }}/>
+                    </div>
+                  )}
+                  {colunas(f)}
                 </div>
-              )}
-              {(pipeMode==="both" || pipeMode==="ongoing") && ONGOING_STAGES.map(st=>(
-                <KanbanColumn key={st.id} stage={st} clients={og.filter(c=>c.stage===st.id)} {...colProps}/>
               ))}
             </div>
           ) : (
             <div onDragEnd={() => { setDragId(null); setDragOver(null); }}
-              style={{ flex:1, display:"flex", flexDirection:"column", gap:1, overflow:"hidden" }}>
-              {(pipeMode==="both" || pipeMode==="onboarding") && (
-                <div style={{ flex:1, display:"flex", flexDirection:"column", borderBottom: pipeMode==="both" ? `1px solid ${T.border}` : "none", overflow:"hidden" }}>
-                  <div style={{ padding:"6px 16px", fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", background:T.bg }}>Onboarding</div>
+              style={{ flex:1, display:"flex", flexDirection:"column", gap:1, overflowY:"auto" }}>
+              {visiveis.map((f, i) => (
+                <div key={f.id} style={{ flex:1, minHeight:220, display:"flex", flexDirection:"column", borderBottom: i < visiveis.length - 1 ? `1px solid ${T.border}` : "none", overflow:"hidden" }}>
+                  <div style={{ padding:"6px 16px", fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", background:T.bg }}>{f.name}</div>
                   <div style={{ flex:1, overflowX:"auto", overflowY:"hidden", padding:"12px 16px", display:"flex", gap:10 }}>
-                    {ONBOARDING_STAGES.map(st=>(
-                      <KanbanColumn key={st.id} stage={st} clients={ob.filter(c=>c.stage===st.id)} {...colProps}/>
-                    ))}
+                    {colunas(f)}
                   </div>
                 </div>
-              )}
-              {(pipeMode==="both" || pipeMode==="ongoing") && (
-                <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-                  <div style={{ padding:"6px 16px", fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", background:T.bg }}>Ongoing</div>
-                  <div style={{ flex:1, overflowX:"auto", overflowY:"hidden", padding:"12px 16px", display:"flex", gap:10 }}>
-                    {ONGOING_STAGES.map(st=>(
-                      <KanbanColumn key={st.id} stage={st} clients={og.filter(c=>c.stage===st.id)} {...colProps}/>
-                    ))}
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
           )}
         </div>
@@ -446,8 +497,114 @@ function PipeView({ clients, setClients, isDark, T, onLost, openTabs, selectedCl
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENT BROWSER TAB
 // ─────────────────────────────────────────────────────────────────────────────
-function ClientTab({ client, isDark, T, onClose, onLost }) {
+const ASSINATURA_LABEL = { ativa:"Ativa", inadimplente:"Inadimplente", cancelada:"Cancelada" };
+const CONTRATACAO_LABEL = { em_andamento:"Em andamento", aguardando_confirmacao:"Aguardando confirmação do pagamento", confirmada:"Confirmada" };
+
+function Info({ T, label, children, full }) {
+  return (
+    <div style={full ? { gridColumn:"1 / -1" } : undefined}>
+      <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{label}</div>
+      <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 10px", fontSize:11.5, fontWeight:600, color:T.text, minHeight:18, overflowWrap:"anywhere" }}>{children ?? "—"}</div>
+    </div>
+  );
+}
+
+function ResponsavelEditor({ client, T, sessaoEmail, donos, onSalvar }) {
+  const [email, setEmail] = useState(client.ownerEmail ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState(null);
+  useEffect(() => { setEmail(client.ownerEmail ?? ""); setErro(null); }, [client.id, client.ownerEmail]);
+  const salvar = async (valor) => {
+    setSalvando(true); setErro(null);
+    try { await onSalvar(valor ? valor.trim().toLowerCase() : null); }
+    catch (e) { setErro(e.message); }
+    finally { setSalvando(false); }
+  };
+  const field = { flex:1, minWidth:160, padding:"7px 9px", borderRadius:7, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
+  const btn = { padding:"6px 10px", borderRadius:7, border:`1px solid ${T.border}`, background:T.card, color:T.textSub, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" };
+  return (
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"12px", display:"flex", flexDirection:"column", gap:10 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <Avatar initials={client.ownerInit} hue={client.ownerHue} size={32}/>
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{client.owner}</div>
+          <div style={{ fontSize:10, color:T.textMuted }}>{client.ownerEmail ?? "Ninguém da equipe cuida deste cliente ainda"}</div>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        <input list="crm-responsaveis" type="email" placeholder="e-mail de quem da equipe cuida" value={email} onChange={e => setEmail(e.target.value)} style={field}/>
+        <datalist id="crm-responsaveis">{donos.map(d => <option key={d} value={d}/>)}</datalist>
+        <button disabled={salvando || !email.trim()} onClick={() => salvar(email)} style={{ ...btn, background:T.accentBg, color:T.accentText, borderColor:T.borderHi }}>Salvar</button>
+        {sessaoEmail && sessaoEmail !== client.ownerEmail && <button disabled={salvando} onClick={() => salvar(sessaoEmail)} style={btn}>Atribuir a mim</button>}
+        {client.ownerEmail && <button disabled={salvando} onClick={() => salvar(null)} style={btn}>Remover</button>}
+      </div>
+      {erro && <div style={{ fontSize:11, color:"#DC2626" }}>{erro}</div>}
+    </div>
+  );
+}
+
+function FinanceiroCliente({ client, T, isDark, onRecarregar }) {
+  const c = client.raw;
+  const det = useCarregar(() => (client.tipo === "clinica" ? api.clinica(client.ref) : Promise.resolve(null)), [client.id]);
+  const [modal, setModal] = useState(null);
+  const a = det.dados?.assinatura;
+  const atualizar = () => { det.recarregar(); onRecarregar(); };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:12 }}>
+        <Info T={T} label="Situação"><PagamentoTag pagamento={client.pagamento} isDark={isDark}/>{!client.pagamento && "Sem cobrança"}</Info>
+        <Info T={T} label="MRR">{fmtMrr(client.mrr)}</Info>
+        <Info T={T} label="Último pagamento">{c.pagamentos?.ultimo_data ? `${fmtDia(c.pagamentos.ultimo_data)} · ${fmtMrr(c.pagamentos.ultimo_valor)}` : "—"}</Info>
+        <Info T={T} label="Total pago">{fmtMrr(c.pagamentos?.total_pago)}</Info>
+        <Info T={T} label="Próxima cobrança">{fmtDia(c.proxima_cobranca)}</Info>
+        <Info T={T} label="Ciclo">{c.ciclo ? c.ciclo[0].toUpperCase() + c.ciclo.slice(1) : "—"}</Info>
+      </div>
+
+      {c.cancelamento_agendado_para && (
+        <div style={{ fontSize:12, color:"#D97706", fontWeight:600 }}>Cancelamento agendado para {fmtDia(c.cancelamento_agendado_para)}.</div>
+      )}
+
+      {c.contratacao && (
+        <Secao T={T} titulo="Contratação no app" acao={c.contratacao.pago_em && <Botao T={T} variante="primario" onClick={() => setModal("ativar")}>Ativar assinatura</Botao>}>
+          <div style={{ fontSize:12, color:T.textSub, lineHeight:1.6 }}>
+            {CONTRATACAO_LABEL[c.contratacao.status] ?? c.contratacao.status}
+            {c.contratacao.pago_em && ` · pago em ${fmtDia(c.contratacao.pago_em)}`}
+            {client.mrrPotencial != null && ` · ${fmtMrr(client.mrrPotencial)}/mês`}
+          </div>
+        </Secao>
+      )}
+
+      {client.tipo === "clinica" && (
+        <>
+          <Estado T={T} carregando={det.carregando && !det.dados} erro={det.erro} onTentar={det.recarregar}/>
+          {det.dados && (
+            <Secao T={T} titulo={a ? `Assinatura ${PLANOS[a.plano] ?? a.plano} · ${ASSINATURA_LABEL[a.status] ?? a.status} · ${a.medicos} médico(s), ${a.secretarias} secretária(s)` : "Pagamentos"}
+              acao={<Botao T={T} variante="primario" onClick={() => setModal("novo")}>Registrar pagamento</Botao>}>
+              <Tabela T={T} linhas={det.dados.pagamentos} vazio="Nenhum pagamento registrado." colunas={colunasPagamentos(T)}/>
+            </Secao>
+          )}
+        </>
+      )}
+
+      {modal === "novo" && <NovoPagamentoModal T={T} clinicaId={client.ref} onSalvo={atualizar} onFechar={() => setModal(null)}/>}
+      {modal === "ativar" && (
+        <ModalForm T={T} titulo={`Ativar ${client.name}`}
+          campos={[{ nome:"medico_email", label:"E-mail da conta do médico no app", tipo:"email", obrigatorio:true }]}
+          inicial={{ medico_email: c.contratacao.responsavel_email ?? c.email ?? "" }}
+          textoBotao="Criar assinatura"
+          onEnviar={(v) => api.ativarContratacao(c.contratacao.id, v.medico_email.trim()).then(onRecarregar)}
+          onFechar={() => setModal(null)}/>
+      )}
+    </div>
+  );
+}
+
+function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onResponsavel, onRecarregar }) {
   const [tab, setTab] = useState("dados");
+  const c = client.raw;
+  const funil = FUNNELS.find(f => f.id === client.funnel);
+  const etapa = ALL_STAGES.find(s => s.id === client.stage);
 
   const TabButton = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{
@@ -459,97 +616,73 @@ function ClientTab({ client, isDark, T, onClose, onLost }) {
   );
 
   return (
-    <div style={{
-      flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:T.surface
-    }}>
-      {/* Header */}
-      <div style={{
-        padding:"12px 20px", borderBottom:`1px solid ${T.border}`, display:"flex",
-        alignItems:"flex-start", justifyContent:"space-between", flexShrink:0 }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:T.surface }}>
+      <div style={{ padding:"12px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexShrink:0 }}>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:2 }}>{client.razao}</div>
-          <div style={{ fontSize:11, color:T.textMuted }}>{client.funnel==="onboarding"?"Onboarding":"Ongoing"} · {client.plan}</div>
+          <div style={{ fontSize:16, fontWeight:800, color:T.text, marginBottom:2 }}>{client.name}</div>
+          <div style={{ fontSize:11, color:T.textMuted }}>
+            {client.tipo === "contratacao" ? "Lead sem conta (contratação)" : "Conta no app"} · {funil?.name} › {etapa?.name} · {client.plan}
+            {c.posicao_automatica && " · posição automática"}
+          </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => onLost(client.id)} style={{
-            padding:"5px 10px", borderRadius:6, fontSize:11, fontWeight:600, cursor:"pointer",
-            border:"1.5px solid #DC2626", background:"transparent", color:"#DC2626", fontFamily:"inherit" }}>✕ Lost</button>
-          <button onClick={() => onClose(client.id)} title="Fechar aba" style={{
-            background:"transparent", border:"none", fontSize:20, color:T.textMuted,
-            cursor:"pointer", padding:0, width:20, height:20 }}>✕</button>
+          <button onClick={() => onLost(client.id)} style={{ padding:"5px 10px", borderRadius:6, fontSize:11, fontWeight:600, cursor:"pointer", border:"1.5px solid #DC2626", background:"transparent", color:"#DC2626", fontFamily:"inherit" }}>✕ Lost</button>
+          <button onClick={() => onClose(client.id)} title="Fechar aba" style={{ background:"transparent", border:"none", fontSize:20, color:T.textMuted, cursor:"pointer", padding:0, width:20, height:20 }}>✕</button>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div style={{
-        display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12, padding:"12px 20px",
-        borderBottom:`1px solid ${T.border}`, background:T.bg, flexShrink:0 }}>
-        <div>
-          <div style={{ fontSize:9, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4, fontWeight:700 }}>MRR</div>
-          <div style={{ fontSize:14, fontWeight:800, color:T.accentText }}>{fmtMrr(client.mrr)}</div>
-        </div>
-        <div>
-          <div style={{ fontSize:9, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4, fontWeight:700 }}>Health</div>
-          <div style={{ fontSize:14, fontWeight:800, color:hsColor(client.hs) }}>{client.hs}</div>
-        </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(110px, 1fr))", gap:12, padding:"12px 20px", borderBottom:`1px solid ${T.border}`, background:T.bg, flexShrink:0 }}>
+        {[
+          ["MRR", client.mrr > 0 || client.mrrPotencial == null ? fmtMrr(client.mrr) : `${fmtMrr(client.mrrPotencial)} pot.`, T.accentText],
+          ["Health", client.hs, hsColor(client.hs)],
+          ["Último uso", c.dias_sem_login == null ? "—" : c.dias_sem_login === 0 ? "hoje" : `há ${c.dias_sem_login} dia(s)`, T.text],
+          ["Equipe", `${c.membros} login(s)`, T.text],
+        ].map(([l, v, cor]) => (
+          <div key={l}>
+            <div style={{ fontSize:9, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4, fontWeight:700 }}>{l}</div>
+            <div style={{ fontSize:14, fontWeight:800, color:cor }}>{v}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Tab Navigation */}
-      <div style={{
-        display:"flex", gap:0, borderBottom:`1px solid ${T.border}`,
-        overflowX:"auto", padding:"0", flexShrink:0, scrollBehavior:"smooth", background:T.surface
-      }}>
+      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, overflowX:"auto", padding:"0", flexShrink:0, background:T.surface }}>
         <TabButton id="dados" label="Dados"/>
+        <TabButton id="financeiro" label="Financeiro"/>
         <TabButton id="timeline" label="Timeline"/>
         <TabButton id="neural" label="Neural"/>
         <TabButton id="atividades" label="Ativ."/>
         <TabButton id="tickets" label="Tickets"/>
-        <TabButton id="financeiro" label="Fin."/>
       </div>
 
-      {/* Content */}
       <div style={{ padding:"16px 20px", flex:1, overflowY:"auto" }}>
         {tab === "dados" && (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, alignContent:"start" }}>
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Razão Social</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"10px", fontSize:11, fontWeight:700, color:T.text }}>{client.razao}</div>
-            </div>
-
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Plano</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"10px", fontSize:11, fontWeight:700, color:T.text }}>{client.plan}</div>
-            </div>
-
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Status</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"10px" }}>
-                <Badge status={client.status} isDark={isDark}/>
-              </div>
-            </div>
-
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Lançamento</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"10px", fontSize:11, fontWeight:700, color:T.text }}>{new Date(client.launchDate).toLocaleDateString('pt-BR')}</div>
-            </div>
-
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:14, alignContent:"start" }}>
+            <Info T={T} label="Razão social / nome">{client.razao}</Info>
+            <Info T={T} label="CNPJ / CPF">{c.documento}</Info>
+            <Info T={T} label="E-mail">{c.email}</Info>
+            <Info T={T} label="Telefone">{c.telefone}</Info>
+            <Info T={T} label="Cidade">{[c.cidade, c.uf].filter(Boolean).join(" / ") || null}</Info>
+            <Info T={T} label="Plano">{client.plan}{c.ciclo ? ` · ${c.ciclo}` : ""}</Info>
+            <Info T={T} label="Assinatura">{c.assinatura_status ? ASSINATURA_LABEL[c.assinatura_status] ?? c.assinatura_status : "Sem assinatura"}</Info>
+            <Info T={T} label="Engajamento"><Badge status={client.status} isDark={isDark}/></Info>
+            <Info T={T} label={client.tipo === "contratacao" ? "Contratação iniciada" : "Conta criada"}>{fmtDia(c.criado_em)}</Info>
+            <Info T={T} label="Cliente desde">{fmtDia(c.cliente_desde)}</Info>
+            <Info T={T} label="Último login">{c.ultimo_login ? new Date(c.ultimo_login).toLocaleString("pt-BR") : "—"}</Info>
+            <Info T={T} label="Acesso">{c.acesso_bloqueado ? "Bloqueado" : "Liberado"}</Info>
+            {c.responsavel_nome && <Info T={T} label="Responsável na clínica">{c.responsavel_nome}</Info>}
+            {c.especialidade && <Info T={T} label="Especialidade">{c.especialidade}</Info>}
+            {c.como_conheceu && <Info T={T} label="Como conheceu">{c.como_conheceu}</Info>}
             <div style={{ gridColumn:"1 / -1" }}>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Responsável</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"12px", display:"flex", alignItems:"center", gap:12 }}>
-                <Avatar initials={client.ownerInit} hue={client.ownerHue} size={32}/>
-                <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{client.owner}</div>
-                  <div style={{ fontSize:10, color:T.textMuted }}>Gestor de Sucesso</div>
-                </div>
-              </div>
+              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Responsável na Zubler</div>
+              <ResponsavelEditor client={client} T={T} sessaoEmail={sessaoEmail} donos={donos} onSalvar={(email) => onResponsavel(client.id, email)}/>
             </div>
           </div>
         )}
 
+        {tab === "financeiro" && <FinanceiroCliente client={client} T={T} isDark={isDark} onRecarregar={onRecarregar}/>}
+
         {tab === "timeline" && (
-          <div style={{ textAlign:"center", padding:"40px 20px", color:T.textMuted, fontSize:13 }}>
-            📅 Timeline em desenvolvimento
-          </div>
+          <div style={{ textAlign:"center", padding:"40px 20px", color:T.textMuted, fontSize:13 }}>📅 Timeline em desenvolvimento</div>
         )}
 
         {tab === "neural" && (
@@ -557,40 +690,20 @@ function ClientTab({ client, isDark, T, onClose, onLost }) {
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Health Score</div>
               <HsBar value={client.hs} isDark={isDark}/>
+              <div style={{ fontSize:11, color:T.textMuted, marginTop:8, lineHeight:1.5 }}>
+                Calculado pelo último login da clínica (médico e equipe), inadimplência, cobranças vencidas e bloqueio de acesso.
+              </div>
             </div>
-            <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"20px", textAlign:"center", color:T.textMuted, fontSize:12 }}>
-              🧠 Neural Score em desenvolvimento
-            </div>
+            <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"20px", textAlign:"center", color:T.textMuted, fontSize:12 }}>🧠 Neural Score em desenvolvimento</div>
           </div>
         )}
 
         {tab === "atividades" && (
-          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"20px", textAlign:"center", color:T.textMuted, fontSize:12 }}>
-            📝 Nenhuma atividade registrada
-          </div>
+          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"20px", textAlign:"center", color:T.textMuted, fontSize:12 }}>📝 Nenhuma atividade registrada</div>
         )}
 
         {tab === "tickets" && (
-          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"20px", textAlign:"center", color:T.textMuted, fontSize:12 }}>
-            🎫 Nenhum ticket vinculado
-          </div>
-        )}
-
-        {tab === "financeiro" && (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, alignContent:"start" }}>
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>MRR</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"12px", fontSize:14, fontWeight:800, color:T.accentText }}>{fmtMrr(client.mrr)}</div>
-            </div>
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>ARR</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"12px", fontSize:14, fontWeight:800, color:T.accentText }}>{fmtMrr(client.mrr * 12)}</div>
-            </div>
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Ciclo de Faturamento</div>
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"12px", fontSize:11, fontWeight:700, color:T.text }}>Mensal</div>
-            </div>
-          </div>
+          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"20px", textAlign:"center", color:T.textMuted, fontSize:12 }}>🎫 Nenhum ticket vinculado</div>
         )}
       </div>
     </div>
@@ -600,7 +713,11 @@ function ClientTab({ client, isDark, T, onClose, onLost }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
-function DashboardView({ clients, lostClients, isDark, T, onCardClick }) {
+function DashboardView({ clients: todos, lostClients, isDark, T, onCardClick, carregando, erro, onRecarregar }) {
+  const clients = todos.filter(c => c.fase === "cliente");
+  const leads = todos.filter(c => c.fase === "lead");
+  const mrrPotencial = leads.reduce((s,c)=>s+(c.mrrPotencial || 0),0);
+  const inadimplentes = clients.filter(c => c.pagamento?.cor === "red");
   const mrr = clients.reduce((s,c)=>s+c.mrr,0);
   const avgHs = clients.length ? Math.round(clients.reduce((s,c)=>s+c.hs,0) / clients.length) : 0;
   const atRisk = clients.filter(c => c.hs < 50 || c.stage === "risco");
@@ -622,8 +739,12 @@ function DashboardView({ clients, lostClients, isDark, T, onCardClick }) {
 
   return (
     <div style={{ flex:1, overflowY:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:14 }}>
+      <Estado T={T} carregando={carregando && !todos.length} erro={erro} onTentar={onRecarregar}/>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(170px, 1fr))", gap:12 }}>
         <Metric label="Clientes ativos" value={clients.length}/>
+        <Metric label="Leads abertos" value={leads.length}/>
+        <Metric label="MRR potencial (leads)" value={fmtMrr(mrrPotencial)} color={T.textSub}/>
+        <Metric label="Inadimplentes / vencidas" value={inadimplentes.length} color={inadimplentes.length ? "#DC2626" : T.textMuted}/>
         <Metric label="MRR total" value={fmtMrr(mrr)} color={T.accentText}/>
         <Metric label="Health score médio" value={avgHs} color={hsColor(avgHs)}/>
         <Metric label="Em risco" value={atRisk.length} color="#DC2626"/>
@@ -633,6 +754,7 @@ function DashboardView({ clients, lostClients, isDark, T, onCardClick }) {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:14 }}>
         <Section title="Saúde por cliente">
           <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+            {clients.length === 0 && <div style={{ fontSize:12, color:T.textMuted }}>Nenhum cliente com assinatura ainda.</div>}
             {[...clients].sort((a,b)=>b.hs-a.hs).map(c => (
               <div key={c.id} onClick={() => onCardClick(c)} style={{ display:"grid", gridTemplateColumns:"110px 1fr", alignItems:"center", gap:10, cursor:"pointer" }}>
                 <span style={{ fontSize:11, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</span>
@@ -665,6 +787,7 @@ function DashboardView({ clients, lostClients, isDark, T, onCardClick }) {
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {owners.map(o => {
               const own = clients.filter(c => c.owner === o.owner);
+              if (!own.length) return null;
               const oHs = Math.round(own.reduce((s,c)=>s+c.hs,0) / own.length);
               return (
                 <div key={o.owner} style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -689,7 +812,7 @@ function DashboardView({ clients, lostClients, isDark, T, onCardClick }) {
                     <span style={{ fontSize:11, fontWeight:700, color:"#DC2626" }}>{fmtMrr(c.mrr)}</span>
                   </div>
                   <div style={{ fontSize:10, color:T.textMuted, marginTop:2 }}>
-                    {c.lost.reason} · {new Date(c.lost.date + "T00:00").toLocaleDateString("pt-BR")}
+                    {c.lost.reason} · {fmtDia(c.lost.date)}
                     {c.lost.fine > 0 && ` · multa ${fmtMrr(c.lost.fine)}`}
                     {c.lost.pendingBills > 0 && ` · ${c.lost.pendingBills} boleto(s) pendente(s)`}
                   </div>
@@ -718,10 +841,16 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
   const field = { width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
   const Label = ({ children }) => <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5 }}>{children}</div>;
 
-  const submit = () => {
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState(null);
+  const submit = async () => {
     if (!form.clientId) return;
-    onConfirm(Number(form.clientId), {
-      reason: form.reason, date: form.date, notes: form.notes,
+    setSalvando(true); setErro(null);
+    try { await enviar(); } catch (e) { setErro(e.message); setSalvando(false); }
+  };
+  const enviar = () => {
+    return onConfirm(form.clientId, {
+      reason: form.reason, date: form.date, notes: form.notes || null,
       fine: Number(form.fine) || 0, pendingBills: Number(form.pendingBills) || 0, pendingAmount: Number(form.pendingAmount) || 0,
     });
   };
@@ -769,7 +898,8 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
         </div>
         <div style={{ padding:"12px 18px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"flex-end", gap:8 }}>
           <button onClick={onClose} style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${T.border}`, background:"transparent", color:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Cancelar</button>
-          <button onClick={submit} disabled={!clients.length} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#DC2626", color:"#FFFFFF", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Confirmar lost</button>
+          {erro && <span style={{ flex:1, fontSize:11, color:"#DC2626", alignSelf:"center" }}>{erro}</span>}
+          <button onClick={submit} disabled={!clients.length || salvando} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#DC2626", color:"#FFFFFF", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>{salvando ? "Salvando…" : "Confirmar lost"}</button>
         </div>
       </div>
     </div>
@@ -808,8 +938,52 @@ const NAV_ITEMS = [
 
 export default function App({ sessao }) {
   const [isDark, setIsDark] = useState(false);
-  const [clients, setClients] = useState(INITIAL_CLIENTS);
-  const [lostClients, setLostClients] = useState([]);
+  const [todos, setTodos] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const clients = todos.filter(c => !c.lost);
+  const lostClients = todos.filter(c => c.lost);
+  const sessaoEmail = sessao?.user?.email?.toLowerCase() ?? null;
+  const donos = [...new Set([sessaoEmail, ...todos.map(c => c.ownerEmail)].filter(Boolean))].sort();
+
+  // Clientes reais do app (contas, contratações, assinaturas e pagamentos) pela ponte.
+  const recarregar = useCallback(async () => {
+    setCarregando(true); setErro(null);
+    try {
+      const { cards } = await api.pipe();
+      setTodos(cards.map(cardParaCliente));
+    } catch (e) { setErro(e.message); }
+    finally { setCarregando(false); }
+  }, []);
+  useEffect(() => { recarregar(); }, [recarregar]);
+
+  // Grava na ponte; a tela muda na hora e volta atrás se o app recusar.
+  const salvar = async (clientId, dados, otimista) => {
+    const c = todos.find(x => x.id === clientId);
+    if (!c) return;
+    const antes = todos;
+    setTodos(prev => prev.map(x => x.id === clientId ? { ...x, ...otimista } : x));
+    try { await api.salvarPipe(c.ref, { tipo: c.tipo, ...dados }); }
+    catch (e) { setTodos(antes); throw e; }
+  };
+
+  const moverCard = (clientId, funnel, stage) => {
+    const c = todos.find(x => x.id === clientId);
+    if (!c || (c.funnel === funnel && c.stage === stage)) return;
+    if ((funnel === "leads") !== (c.fase === "lead")) {
+      alert(c.fase === "lead"
+        ? `${c.name} ainda não tem assinatura ativa no app: fica no funil de Leads até assinar.`
+        : `${c.name} já é cliente com assinatura: use os funis Onboarding e Ongoing.`);
+      return;
+    }
+    salvar(clientId, { funil: funnel, etapa: stage }, { funnel, stage, raw: { ...c.raw, posicao_automatica: false } })
+      .catch(e => alert(`Não foi possível mover: ${e.message}`));
+  };
+
+  const definirResponsavel = (clientId, email) => {
+    const owner = email ? nomeDoEmail(email) : SEM_RESPONSAVEL;
+    return salvar(clientId, { responsavel: email }, { ownerEmail: email, owner, ownerInit: iniciais(owner), ownerHue: email ? hueOf(email) : 220 });
+  };
   const [lostModal, setLostModal] = useState(null);
   const [view, setView] = useState("pipe");
   const [openTabs, setOpenTabs] = useState([]);
@@ -817,11 +991,8 @@ export default function App({ sessao }) {
   const T = THEMES[isDark ? "dark" : "light"];
   const currentNav = NAV_ITEMS.find(n => n.id === view);
 
-  const confirmLost = (clientId, lost) => {
-    const client = clients.find(c => c.id === clientId);
-    if (!client) return;
-    setClients(prev => prev.filter(c => c.id !== clientId));
-    setLostClients(prev => [...prev, { ...client, lost }]);
+  const confirmLost = async (clientId, lost) => {
+    await salvar(clientId, { lost }, { lost });
     setOpenTabs(prev => prev.filter(c => c.id !== clientId));
     if (selectedClient?.id === clientId) setSelectedClient(null);
     setLostModal(null);
@@ -866,12 +1037,12 @@ export default function App({ sessao }) {
   );
 
   const renderView = () => {
-    if (view === "pipe") return <PipeView clients={clients} setClients={setClients} isDark={isDark} T={T} onLost={() => setLostModal({ clientId: null })} openTabs={openTabs} selectedClient={selectedClient} openClientTab={openClientTab} closeClientTab={closeClientTab} switchTab={switchTab}/>;
+    if (view === "pipe") return <PipeView clients={clients} isDark={isDark} T={T} onLost={() => setLostModal({ clientId: null })} onMove={moverCard} onRecarregar={recarregar} carregando={carregando} erro={erro} openClientTab={openClientTab}/>;
     if (view === "clinicas") return <ClinicasView T={T}/>;
     if (view === "usuarios") return <UsuariosView T={T}/>;
     if (view === "financeiro") return <FinanceiroView T={T}/>;
     if (view === "cupons") return <CuponsView T={T}/>;
-    if (view === "dashboard") return <DashboardView clients={clients} lostClients={lostClients} isDark={isDark} T={T} onCardClick={openClientTab}/>;
+    if (view === "dashboard") return <DashboardView clients={clients} lostClients={lostClients} isDark={isDark} T={T} onCardClick={openClientTab} carregando={carregando} erro={erro} onRecarregar={recarregar}/>;
     return <PlaceholderView icon={currentNav.icon} title={currentNav.label} description={`${currentNav.desc} Módulo em desenvolvimento.`} T={T}/>;
   };
 
@@ -914,12 +1085,12 @@ export default function App({ sessao }) {
         </div>
 
         {liveSelected
-          ? <ClientTab client={liveSelected} isDark={isDark} T={T} onClose={closeClientTab} onLost={(id) => setLostModal({ clientId: id })}/>
+          ? <ClientTab client={liveSelected} isDark={isDark} T={T} onClose={closeClientTab} onLost={(id) => setLostModal({ clientId: id })} sessaoEmail={sessaoEmail} donos={donos} onResponsavel={definirResponsavel} onRecarregar={recarregar}/>
           : renderView()}
       </div>
 
       {lostModal && (
-        <LostModal clients={clients} initialClientId={lostModal.clientId} T={T} onClose={() => setLostModal(null)} onConfirm={confirmLost}/>
+        <LostModal clients={[...clients].sort((a,b) => a.name.localeCompare(b.name))} initialClientId={lostModal.clientId} T={T} onClose={() => setLostModal(null)} onConfirm={confirmLost}/>
       )}
     </div>
   );
