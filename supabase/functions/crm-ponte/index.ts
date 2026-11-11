@@ -31,7 +31,7 @@ const ROTAS: [string, RegExp][] = [
   ["GET", /^pagamentos$/],
   ["POST", /^pagamentos$/],
   ["POST", new RegExp(`^pagamentos/${UUID}/status$`)],
-  ["POST", new RegExp(`^pagamentos/${UUID}/estorno$`)],
+  ["POST", new RegExp(`^pagamentos/(${UUID}|pay_[A-Za-z0-9]{1,64})/estorno$`)],
   ["POST", new RegExp(`^assinaturas/${UUID}/cancelar$`)],
   ["POST", new RegExp(`^assinaturas/${UUID}/reativar$`)],
   ["POST", new RegExp(`^clinicas/${UUID}/asaas/sincronizar$`)],

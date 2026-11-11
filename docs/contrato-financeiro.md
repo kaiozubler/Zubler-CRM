@@ -5,6 +5,11 @@ webhooks do Asaas e guarda cobranças e assinaturas. O CRM lê e pede ações pe
 ponte (`/api/public/crm/...`, com o `CRM_BRIDGE_TOKEN` e o cabeçalho
 `X-CRM-Actor` com o e-mail de quem fez a ação).
 
+**Implementado no MediCopilot** na branch `claude/crm-financeiro` do repositório
+ideia14kaio (migração `20261111190000_crm_financeiro.sql`, rotas em
+`src/routes/api/public/crm/`, regras em `src/lib/crm/ponte.ts` e
+`src/lib/crm/financeiro.server.ts`).
+
 Tudo aqui é **aditivo**: campos e rotas antigos continuam iguais. Enquanto o app
 não tiver um campo, o CRM mostra "—"; enquanto não tiver uma rota, o CRM avisa
 que a função ainda não existe no app.
@@ -37,6 +42,7 @@ O app devolve sempre em português (o CRM ainda entende os códigos do Asaas):
     "inicio": "2026-06-05",
     "proxima_cobranca": "2026-11-15",
     "cancelamento_agendado_para": null,  // data, quando o cancelamento é no fim do ciclo
+    "cancelamento_reversivel": false,    // true só quando a equipe agendou pelo CRM
     "cancelada_em": null,                // quando foi cancelada de fato
     "cancelamento_motivo": null,
     "cancelado_por": null,               // e-mail (X-CRM-Actor) ou "cliente" / "asaas"
@@ -97,6 +103,7 @@ Todas respondem `200` com o objeto atualizado, ou `4xx` com `{ "error": "mensage
 ```json
 { "valor": 100.0, "motivo": "Cobrança em duplicidade" }
 ```
+- `:id` é o uuid do pagamento manual ou o id da cobrança no Asaas (`pay_...`).
 - `valor` ausente = estorno total. Não pode passar de `valor - valor_estornado`.
 - Origem `asaas`: o app chama `POST /v3/payments/{asaas_payment_id}/refund` com
   `{ value, description: motivo }` e grava o estorno como `solicitado`; o webhook
@@ -110,14 +117,17 @@ Todas respondem `200` com o objeto atualizado, ou `4xx` com `{ "error": "mensage
 { "quando": "fim_do_ciclo | agora", "motivo": "Preço", "observacao": "…", "cancelar_pendentes": true }
 ```
 - `fim_do_ciclo`: grava `cancelamento_agendado_para = proxima_cobranca` e, no Asaas,
-  `PUT /v3/subscriptions/{id}` com `endDate` nessa data. O acesso continua até lá.
+  `PUT /v3/subscriptions/{id}` com `endDate` no dia anterior (para a próxima cobrança não ser
+  gerada); apaga a cobrança do próximo ciclo se o Asaas já a tiver criado. O acesso continua até lá.
 - `agora`: `DELETE /v3/subscriptions/{id}` no Asaas, status `cancelada`, `cancelada_em = hoje`.
   Com `cancelar_pendentes`, apaga também as cobranças `pendente` / `vencido` (`DELETE /v3/payments/{id}`).
 
 ### `POST assinaturas/:id/reativar`
 
-Desfaz um cancelamento **agendado** (limpa `cancelamento_agendado_para` e o `endDate` no Asaas).
-Assinatura já cancelada não volta: precisa de nova contratação.
+Desfaz um cancelamento **agendado pelo CRM** (limpa `cancelamento_agendado_para` e o `endDate` no Asaas).
+O cancelamento feito pelo cliente na tela Meu plano apaga a assinatura no Asaas na hora, então não
+pode ser desfeito (`cancelamento_reversivel = false`). Assinatura já cancelada não volta: precisa de
+nova contratação.
 
 ### `POST clinicas/:id/asaas/sincronizar`
 

@@ -205,7 +205,7 @@ function Cancelamento({ T, a, c, onCancelar, onReativar, reativando, erro }) {
           {a?.cancelamento_motivo ? ` · ${a.cancelamento_motivo}` : ""}{a?.cancelado_por ? ` · por ${a.cancelado_por}` : ""}. O acesso continua até lá.
         </span>
         {erro && <span style={{ color: "#DC2626" }}>{erro}</span>}
-        {a?.id && <Botao T={T} onClick={onReativar} disabled={reativando}>{reativando ? "Desfazendo…" : "Desfazer cancelamento"}</Botao>}
+        {a?.id && a.cancelamento_reversivel !== false && <Botao T={T} onClick={onReativar} disabled={reativando}>{reativando ? "Desfazendo…" : "Desfazer cancelamento"}</Botao>}
       </div>
     );
   }
