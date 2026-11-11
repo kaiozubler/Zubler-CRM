@@ -11,7 +11,7 @@ npm run dev
 
 ## Conexão com o app (Clínicas, Usuários, Financeiro, Cupons)
 
-As telas Clínicas, Usuários, Financeiro e Cupons usam dados reais do app pela Edge Function
+As telas Pipe, Dashboard, Clínicas, Usuários, Financeiro e Cupons usam dados reais do app pela Edge Function
 `supabase/functions/crm-ponte`. O navegador nunca vê o `CRM_BRIDGE_TOKEN`: ele manda o
 login do Supabase, a função confere se o e-mail é da equipe e repassa a chamada para
 `CORE_API_URL/api/public/crm/...`.
@@ -43,13 +43,27 @@ As contas de login da equipe são criadas no Lovable em Cloud → Users. O front
 
 Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância claro/escuro
 - **Dashboard**: clientes ativos, MRR, health score médio, clientes em risco, carteira por responsável, cancelamentos
-- **Pipe**: funis Onboarding (Kick-off → Check-out) e Ongoing (Ativação → Sucesso)
+- **Pipe**: clientes reais do app (rota `pipe` da ponte), em três funis:
+  Leads (Conta criada → Contratando → Aguardando pgto → Pago · ativar), Onboarding
+  (Kick-off → Check-out) e Ongoing (Ativação → Sucesso)
+  - Cada card é uma clínica (conta do médico) ou uma contratação sem conta. Sem posição
+    salva, o card cai sozinho: sem assinatura → Leads; assinatura com menos de 30 dias →
+    Kick-off; mais antiga → Customer Success; inadimplente → Risco. Assinatura cancelada
+    no app vira lost automático
+  - Lead só anda no funil de Leads e cliente com assinatura só em Onboarding/Ongoing;
+    quando o lead assina, ele sai dos Leads sozinho
+  - Posição, responsável da equipe e lost ficam na tabela `crm_pipe` do app
+  - Health score pelo último login da clínica (médico + equipe), inadimplência, cobranças
+    vencidas e bloqueio; selo de pagamento no card (Em dia, Inadimplente, vencidas,
+    Aguardando pgto, Pago sem ativar)
   - Bifurcação vertical/horizontal (┃/━), com rolagem independente por funil
   - Arrastar e soltar entre etapas, inclusive em etapas vazias e entre funis
   - Agrupar por Responsável (qualquer modo) ou Status/Plano (com um único funil), com grupos recolhíveis
   - Filtros: ordenação (Nome, Health, MRR, Novo, Início), status, responsáveis (multiselect; com 2+ responsáveis, um funil por vez)
   - Contador da etapa com tooltip do MRR e botão "+" para automações
-- **Cliente**: abas no topbar, como num navegador (várias abertas ao mesmo tempo), tela cheia com Dados, Timeline, Neural Score, Atividades, Tickets, Financeiro
+- **Cliente**: abas no topbar, como num navegador (várias abertas ao mesmo tempo), tela cheia com
+  Dados (cadastro, plano, uso, responsável na Zubler), Financeiro (assinatura, pagamentos,
+  registrar pagamento, ativar contratação paga), Timeline, Neural Score, Atividades, Tickets
 - **Lost**: motivo, data, multa, boletos pendentes, valor em aberto e observações; o cliente sai da pipe e aparece no Dashboard
 
 - **Cupons**: planos atuais do MediCopilot (lidos do app) e cupons de desconto da contratação —
