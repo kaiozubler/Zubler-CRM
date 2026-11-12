@@ -70,6 +70,9 @@ Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância cl
     cancelar agora, desfazer agendamento), jornada da contratação para leads, totais (recebido,
     líquido, em aberto, vencido, estornado), mapa dos últimos 12 meses, cobranças com fatura e
     estorno total/parcial, e lista de estornos
+  - Uso (clínicas com conta): risco de churn, alertas, comparação de cada métrica com o período
+    anterior, a média histórica da clínica e a média dos parceiros, gráfico diário, consumo da
+    franquia do mês e licenças, usuários (último acesso, dias com acesso, acessos) e telas acessadas
   - Timeline: eventos do app (conta criada, pagamentos, virou cliente, último acesso, próximas
     cobranças) + registros da equipe (nota, ligação, reunião, e-mail, WhatsApp, proposta),
     com filtro Tudo/Equipe/App; cada um apaga só o que registrou
@@ -85,6 +88,14 @@ Agenda, Atividades, Jornadas, NPS, Indicadores, Configurações, alternância cl
 O Asaas é integrado no MediCopilot; o CRM lê e pede ações pela ponte. As rotas e campos novos que o app
 precisa ter estão em [`docs/contrato-financeiro.md`](docs/contrato-financeiro.md). Enquanto o app não tiver
 uma rota, o CRM avisa que a função ainda não existe; estorno total de pagamento manual usa a rota antiga.
+
+- **Uso e risco**: uso do app pela carteira em 7, 14, 30, 60 ou 90 dias, sempre contra o período anterior:
+  clínicas que usaram, acessos, consultas, agendamentos, gráfico diário, ranking de telas e alertas de
+  churn (sem acesso, nunca acessou, cancelamento agendado, inadimplência), queda de uso (contra o período
+  anterior, a média histórica da clínica e a média dos demais parceiros assinantes) e upgrade (franquia
+  perto do limite ou ultrapassada, adicionais comprados, licenças esgotadas, uso bem acima dos parceiros).
+  O app registra cada acesso e troca de tela (`uso_eventos`) e calcula tudo em `GET uso` e
+  `GET clinicas/:id/uso` (branch `claude/crm-uso` do MediCopilot).
 
 - **Cupons**: planos atuais do MediCopilot (lidos do app) e cupons de desconto da contratação —
   porcentagem, valor fixo, dias de teste grátis ou recurso adicional grátis; por plano ou para
