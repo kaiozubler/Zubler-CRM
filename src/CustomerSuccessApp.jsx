@@ -3,6 +3,7 @@ import { supabase } from "./core/api.js";
 import ClinicasView from "./core/ClinicasView.jsx";
 import UsuariosView from "./core/UsuariosView.jsx";
 import FinanceiroView from "./core/FinanceiroView.jsx";
+import UsoView, { UsoCliente } from "./core/UsoView.jsx";
 import CuponsView from "./core/CuponsView.jsx";
 import { api } from "./core/api.js";
 import { Estado, useCarregar } from "./core/ui.jsx";
@@ -585,6 +586,7 @@ function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onR
       <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, overflowX:"auto", padding:"0", flexShrink:0, background:T.surface }}>
         <TabButton id="dados" label="Dados"/>
         <TabButton id="financeiro" label="Financeiro"/>
+        {client.tipo === "clinica" && <TabButton id="uso" label="Uso"/>}
         <TabButton id="timeline" label="Timeline"/>
         <TabButton id="neural" label="Neural"/>
         <TabButton id="atividades" label="Ativ."/>
@@ -598,6 +600,8 @@ function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onR
         )}
 
         {tab === "financeiro" && <PlanoPagamentos client={client} T={T} det={det} lead={lead.dados} onRecarregar={onRecarregar}/>}
+
+        {tab === "uso" && client.tipo === "clinica" && <UsoCliente T={T} clinicaId={client.ref}/>}
 
         {tab === "timeline" && <Timeline client={client} T={T} det={det} sessaoEmail={sessaoEmail}/>}
 
@@ -879,6 +883,7 @@ const NAV_ITEMS = [
   { id:"clinicas", label:"Clínicas", icon:"🏥" },
   { id:"usuarios", label:"Usuários", icon:"👤" },
   { id:"financeiro", label:"Financeiro", icon:"$" },
+  { id:"uso", label:"Uso e risco", icon:"📊" },
   { id:"cupons", label:"Cupons", icon:"🏷" },
   { id:"agenda", label:"Agenda", icon:"📅", desc:"Reuniões, follow-ups e marcos dos clientes em um calendário único." },
   { id:"atividades", label:"Atividades", icon:"✓", desc:"Tarefas e interações registradas com cada cliente da carteira." },
@@ -993,6 +998,7 @@ export default function App({ sessao }) {
     if (view === "clinicas") return <ClinicasView T={T}/>;
     if (view === "usuarios") return <UsuariosView T={T}/>;
     if (view === "financeiro") return <FinanceiroView T={T}/>;
+    if (view === "uso") return <UsoView T={T} onAbrirClinica={(id) => { const c = clients.find(x => x.tipo === "clinica" && x.ref === id); if (c) openClientTab(c); }}/>;
     if (view === "cupons") return <CuponsView T={T}/>;
     if (view === "dashboard") return <DashboardView clients={clients} lostClients={lostClients} isDark={isDark} T={T} onCardClick={openClientTab} carregando={carregando} erro={erro} onRecarregar={recarregar}/>;
     return <PlaceholderView icon={currentNav.icon} title={currentNav.label} description={`${currentNav.desc} Módulo em desenvolvimento.`} T={T}/>;

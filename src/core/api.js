@@ -62,5 +62,7 @@ export const api = {
   cancelarAssinatura: (id, dados) => ponte("POST", `assinaturas/${id}/cancelar`, dados),
   reativarAssinatura: (id) => ponte("POST", `assinaturas/${id}/reativar`, {}),
   sincronizarAsaas: (clinicaId) => ponte("POST", `clinicas/${clinicaId}/asaas/sincronizar`, {}),
+  uso: (dias = 30) => ponte("GET", `uso?dias=${dias}`),
+  usoClinica: (id, dias = 30) => ponte("GET", `clinicas/${id}/uso?dias=${dias}`),
   ativarContratacao: (id, medico_email) => ponte("POST", `contratacoes/${id}/ativar`, { medico_email }),
 };

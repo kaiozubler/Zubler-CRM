@@ -35,6 +35,8 @@ const ROTAS: [string, RegExp][] = [
   ["POST", new RegExp(`^assinaturas/${UUID}/cancelar$`)],
   ["POST", new RegExp(`^assinaturas/${UUID}/reativar$`)],
   ["POST", new RegExp(`^clinicas/${UUID}/asaas/sincronizar$`)],
+  ["GET", /^uso$/],
+  ["GET", new RegExp(`^clinicas/${UUID}/uso$`)],
   ["POST", new RegExp(`^contratacoes/${UUID}/ativar$`)],
   ["GET", /^cupons$/],
   ["POST", /^cupons$/],
@@ -85,6 +87,8 @@ Deno.serve(async (req) => {
   const destino = new URL(`${base}/api/public/crm/${caminho}`);
   const busca = url.searchParams.get("busca");
   if (busca) destino.searchParams.set("busca", busca);
+  const dias = url.searchParams.get("dias");
+  if (dias && /^\d{1,3}$/.test(dias)) destino.searchParams.set("dias", dias);
 
   try {
     const resp = await fetch(destino, {
