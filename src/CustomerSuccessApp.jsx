@@ -1006,25 +1006,25 @@ export default function App({ sessao }) {
 
   return (
     <div style={{ display:"flex", height:"100vh", background:T.bg, fontFamily:"Inter,system-ui,sans-serif", color:T.text, overflow:"hidden" }}>
-      <nav style={{ width:64, background:T.surface, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", padding:"12px 0", gap:4, flexShrink:0, boxShadow:T.shadow }}>
-        <div style={{ width:34, height:34, borderRadius:9, background:T.accentBg, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:8 }}>
+      <nav style={{ width:64, background:T.surface, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", alignItems:"center", padding:"12px 0", gap:4, flexShrink:0, boxShadow:T.shadow, overflowY:"auto", overflowX:"hidden", scrollbarWidth:"thin", scrollbarColor:`${T.border} transparent` }}>
+        <div style={{ width:34, height:34, borderRadius:9, background:T.accentBg, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:8 }}>
           <span style={{ fontSize:18, color:T.accentText }}>♥</span>
         </div>
         {NAV_ITEMS.map(n => {
           const active = view === n.id && !selectedClient;
           return (
-            <button key={n.id} onClick={() => goTo(n.id)} title={n.label} style={{ width:54, padding:"7px 0 5px", borderRadius:9, border:"none", background: active ? T.accentBg : "transparent", color: active ? T.accentText : T.textSub, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, fontFamily:"inherit", transition:"background 0.15s" }}>
+            <button key={n.id} onClick={() => goTo(n.id)} title={n.label} style={{ width:54, flexShrink:0, padding:"7px 0 5px", borderRadius:9, border:"none", background: active ? T.accentBg : "transparent", color: active ? T.accentText : T.textSub, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, fontFamily:"inherit", transition:"background 0.15s" }}>
               <span style={{ fontSize:15, lineHeight:1 }}>{n.icon}</span>
               <span style={{ fontSize:8.5, fontWeight: active ? 700 : 500, maxWidth:52, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{n.label}</span>
             </button>
           );
         })}
         <div style={{ flex:1 }}/>
-        <button onClick={() => supabase.auth.signOut()} title={`Sair (${sessao?.user?.email ?? ""})`} style={{ width:44, height:44, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, fontFamily:"inherit", transition:"background 0.15s" }}>
+        <button onClick={() => supabase.auth.signOut()} title={`Sair (${sessao?.user?.email ?? ""})`} style={{ width:44, height:44, flexShrink:0, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, fontFamily:"inherit", transition:"background 0.15s" }}>
           <span style={{ fontSize:15, lineHeight:1 }}>⇥</span>
           <span style={{ fontSize:8.5, fontWeight:500 }}>Sair</span>
         </button>
-        <button onClick={() => setIsDark(d=>!d)} title={isDark?"Modo claro":"Modo escuro"} style={{ width:44, height:44, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, transition:"background 0.15s" }}>
+        <button onClick={() => setIsDark(d=>!d)} title={isDark?"Modo claro":"Modo escuro"} style={{ width:44, height:44, flexShrink:0, borderRadius:9, border:"none", background:"transparent", color:T.textSub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, transition:"background 0.15s" }}>
           {isDark ? "☀" : "☾"}
         </button>
       </nav>
