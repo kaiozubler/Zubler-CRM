@@ -5,8 +5,10 @@ import UsuariosView from "./core/UsuariosView.jsx";
 import FinanceiroView from "./core/FinanceiroView.jsx";
 import CuponsView from "./core/CuponsView.jsx";
 import { api } from "./core/api.js";
-import { Botao, Estado, ModalForm, Secao, Tabela, useCarregar } from "./core/ui.jsx";
-import { NovoPagamentoModal, colunasPagamentos } from "./core/FinanceiroView.jsx";
+import { Estado, useCarregar } from "./core/ui.jsx";
+import { carregarLead } from "./core/crmDados.js";
+import { DadosCliente, PlanoPagamentos, Timeline } from "./core/ClienteDetalhe.jsx";
+import { CamposCancelamento, cancelamentoInicial, normalizarCobranca } from "./core/financeiro.jsx";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -497,18 +499,6 @@ function PipeView({ clients, isDark, T, onLost, onMove, onRecarregar, carregando
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENT BROWSER TAB
 // ─────────────────────────────────────────────────────────────────────────────
-const ASSINATURA_LABEL = { ativa:"Ativa", inadimplente:"Inadimplente", cancelada:"Cancelada" };
-const CONTRATACAO_LABEL = { em_andamento:"Em andamento", aguardando_confirmacao:"Aguardando confirmação do pagamento", confirmada:"Confirmada" };
-
-function Info({ T, label, children, full }) {
-  return (
-    <div style={full ? { gridColumn:"1 / -1" } : undefined}>
-      <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>{label}</div>
-      <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 10px", fontSize:11.5, fontWeight:600, color:T.text, minHeight:18, overflowWrap:"anywhere" }}>{children ?? "—"}</div>
-    </div>
-  );
-}
-
 function ResponsavelEditor({ client, T, sessaoEmail, donos, onSalvar }) {
   const [email, setEmail] = useState(client.ownerEmail ?? "");
   const [salvando, setSalvando] = useState(false);
@@ -543,66 +533,13 @@ function ResponsavelEditor({ client, T, sessaoEmail, donos, onSalvar }) {
   );
 }
 
-function FinanceiroCliente({ client, T, isDark, onRecarregar }) {
-  const c = client.raw;
-  const det = useCarregar(() => (client.tipo === "clinica" ? api.clinica(client.ref) : Promise.resolve(null)), [client.id]);
-  const [modal, setModal] = useState(null);
-  const a = det.dados?.assinatura;
-  const atualizar = () => { det.recarregar(); onRecarregar(); };
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:12 }}>
-        <Info T={T} label="Situação"><PagamentoTag pagamento={client.pagamento} isDark={isDark}/>{!client.pagamento && "Sem cobrança"}</Info>
-        <Info T={T} label="MRR">{fmtMrr(client.mrr)}</Info>
-        <Info T={T} label="Último pagamento">{c.pagamentos?.ultimo_data ? `${fmtDia(c.pagamentos.ultimo_data)} · ${fmtMrr(c.pagamentos.ultimo_valor)}` : "—"}</Info>
-        <Info T={T} label="Total pago">{fmtMrr(c.pagamentos?.total_pago)}</Info>
-        <Info T={T} label="Próxima cobrança">{fmtDia(c.proxima_cobranca)}</Info>
-        <Info T={T} label="Ciclo">{c.ciclo ? c.ciclo[0].toUpperCase() + c.ciclo.slice(1) : "—"}</Info>
-      </div>
-
-      {c.cancelamento_agendado_para && (
-        <div style={{ fontSize:12, color:"#D97706", fontWeight:600 }}>Cancelamento agendado para {fmtDia(c.cancelamento_agendado_para)}.</div>
-      )}
-
-      {c.contratacao && (
-        <Secao T={T} titulo="Contratação no app" acao={c.contratacao.pago_em && <Botao T={T} variante="primario" onClick={() => setModal("ativar")}>Ativar assinatura</Botao>}>
-          <div style={{ fontSize:12, color:T.textSub, lineHeight:1.6 }}>
-            {CONTRATACAO_LABEL[c.contratacao.status] ?? c.contratacao.status}
-            {c.contratacao.pago_em && ` · pago em ${fmtDia(c.contratacao.pago_em)}`}
-            {client.mrrPotencial != null && ` · ${fmtMrr(client.mrrPotencial)}/mês`}
-          </div>
-        </Secao>
-      )}
-
-      {client.tipo === "clinica" && (
-        <>
-          <Estado T={T} carregando={det.carregando && !det.dados} erro={det.erro} onTentar={det.recarregar}/>
-          {det.dados && (
-            <Secao T={T} titulo={a ? `Assinatura ${PLANOS[a.plano] ?? a.plano} · ${ASSINATURA_LABEL[a.status] ?? a.status} · ${a.medicos} médico(s), ${a.secretarias} secretária(s)` : "Pagamentos"}
-              acao={<Botao T={T} variante="primario" onClick={() => setModal("novo")}>Registrar pagamento</Botao>}>
-              <Tabela T={T} linhas={det.dados.pagamentos} vazio="Nenhum pagamento registrado." colunas={colunasPagamentos(T)}/>
-            </Secao>
-          )}
-        </>
-      )}
-
-      {modal === "novo" && <NovoPagamentoModal T={T} clinicaId={client.ref} onSalvo={atualizar} onFechar={() => setModal(null)}/>}
-      {modal === "ativar" && (
-        <ModalForm T={T} titulo={`Ativar ${client.name}`}
-          campos={[{ nome:"medico_email", label:"E-mail da conta do médico no app", tipo:"email", obrigatorio:true }]}
-          inicial={{ medico_email: c.contratacao.responsavel_email ?? c.email ?? "" }}
-          textoBotao="Criar assinatura"
-          onEnviar={(v) => api.ativarContratacao(c.contratacao.id, v.medico_email.trim()).then(onRecarregar)}
-          onFechar={() => setModal(null)}/>
-      )}
-    </div>
-  );
-}
-
 function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onResponsavel, onRecarregar }) {
   const [tab, setTab] = useState("dados");
   const c = client.raw;
+  // Detalhe da clínica (assinatura e pagamentos) e cadastro manual, usados por várias abas.
+  const det = useCarregar(() => (client.tipo === "clinica" ? api.clinica(client.ref) : Promise.resolve(null)), [client.id]);
+  const lead = useCarregar(() => carregarLead(client.id), [client.id]);
+  const potencial = client.mrrPotencial ?? (Number(lead.dados?.dados?.valor_potencial) || null);
   const funil = FUNNELS.find(f => f.id === client.funnel);
   const etapa = ALL_STAGES.find(s => s.id === client.stage);
 
@@ -633,7 +570,7 @@ function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onR
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(110px, 1fr))", gap:12, padding:"12px 20px", borderBottom:`1px solid ${T.border}`, background:T.bg, flexShrink:0 }}>
         {[
-          ["MRR", client.mrr > 0 || client.mrrPotencial == null ? fmtMrr(client.mrr) : `${fmtMrr(client.mrrPotencial)} pot.`, T.accentText],
+          ["MRR", client.mrr > 0 || potencial == null ? fmtMrr(client.mrr) : `${fmtMrr(potencial)} pot.`, T.accentText],
           ["Health", client.hs, hsColor(client.hs)],
           ["Último uso", c.dias_sem_login == null ? "—" : c.dias_sem_login === 0 ? "hoje" : `há ${c.dias_sem_login} dia(s)`, T.text],
           ["Equipe", `${c.membros} login(s)`, T.text],
@@ -656,34 +593,13 @@ function ClientTab({ client, isDark, T, onClose, onLost, sessaoEmail, donos, onR
 
       <div style={{ padding:"16px 20px", flex:1, overflowY:"auto" }}>
         {tab === "dados" && (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:14, alignContent:"start" }}>
-            <Info T={T} label="Razão social / nome">{client.razao}</Info>
-            <Info T={T} label="CNPJ / CPF">{c.documento}</Info>
-            <Info T={T} label="E-mail">{c.email}</Info>
-            <Info T={T} label="Telefone">{c.telefone}</Info>
-            <Info T={T} label="Cidade">{[c.cidade, c.uf].filter(Boolean).join(" / ") || null}</Info>
-            <Info T={T} label="Plano">{client.plan}{c.ciclo ? ` · ${c.ciclo}` : ""}</Info>
-            <Info T={T} label="Assinatura">{c.assinatura_status ? ASSINATURA_LABEL[c.assinatura_status] ?? c.assinatura_status : "Sem assinatura"}</Info>
-            <Info T={T} label="Engajamento"><Badge status={client.status} isDark={isDark}/></Info>
-            <Info T={T} label={client.tipo === "contratacao" ? "Contratação iniciada" : "Conta criada"}>{fmtDia(c.criado_em)}</Info>
-            <Info T={T} label="Cliente desde">{fmtDia(c.cliente_desde)}</Info>
-            <Info T={T} label="Último login">{c.ultimo_login ? new Date(c.ultimo_login).toLocaleString("pt-BR") : "—"}</Info>
-            <Info T={T} label="Acesso">{c.acesso_bloqueado ? "Bloqueado" : "Liberado"}</Info>
-            {c.responsavel_nome && <Info T={T} label="Responsável na clínica">{c.responsavel_nome}</Info>}
-            {c.especialidade && <Info T={T} label="Especialidade">{c.especialidade}</Info>}
-            {c.como_conheceu && <Info T={T} label="Como conheceu">{c.como_conheceu}</Info>}
-            <div style={{ gridColumn:"1 / -1" }}>
-              <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 }}>Responsável na Zubler</div>
-              <ResponsavelEditor client={client} T={T} sessaoEmail={sessaoEmail} donos={donos} onSalvar={(email) => onResponsavel(client.id, email)}/>
-            </div>
-          </div>
+          <DadosCliente client={client} T={T} lead={lead} engajamento={<Badge status={client.status} isDark={isDark}/>}
+            responsavel={<ResponsavelEditor client={client} T={T} sessaoEmail={sessaoEmail} donos={donos} onSalvar={(email) => onResponsavel(client.id, email)}/>}/>
         )}
 
-        {tab === "financeiro" && <FinanceiroCliente client={client} T={T} isDark={isDark} onRecarregar={onRecarregar}/>}
+        {tab === "financeiro" && <PlanoPagamentos client={client} T={T} det={det} lead={lead.dados} onRecarregar={onRecarregar}/>}
 
-        {tab === "timeline" && (
-          <div style={{ textAlign:"center", padding:"40px 20px", color:T.textMuted, fontSize:13 }}>📅 Timeline em desenvolvimento</div>
-        )}
+        {tab === "timeline" && <Timeline client={client} T={T} det={det} sessaoEmail={sessaoEmail}/>}
 
         {tab === "neural" && (
           <div>
@@ -838,7 +754,27 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
     fine: "", pendingBills: "", pendingAmount: "", notes: "",
   });
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
-  const field = { width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
+
+  // Cliente com assinatura ativa: cancelar no app/Asaas junto com o lost e
+  // preencher boletos e valor em aberto com as cobranças pendentes/vencidas.
+  const cli = clients.find(c => c.id === form.clientId);
+  const temAssinatura = cli?.tipo === "clinica" && ["ativa", "inadimplente"].includes(cli.raw?.assinatura_status);
+  const det = useCarregar(() => (temAssinatura ? api.clinica(cli.ref) : Promise.resolve(null)), [form.clientId]);
+  const assinatura = det.dados?.assinatura;
+  const [cancelar, setCancelar] = useState(true);
+  const [canc, setCanc] = useState(cancelamentoInicial);
+  useEffect(() => {
+    if (!det.dados) return;
+    const abertas = (det.dados.pagamentos ?? []).map(normalizarCobranca).filter(c => c.status === "pendente" || c.status === "vencido");
+    setForm(f => ({
+      ...f,
+      pendingBills: f.pendingBills === "" ? String(abertas.length) : f.pendingBills,
+      pendingAmount: f.pendingAmount === "" ? String(abertas.reduce((s, c) => s + c.valor, 0)) : f.pendingAmount,
+    }));
+  }, [det.dados]);
+  const vaiCancelar = temAssinatura && cancelar && assinatura?.id && !assinatura.cancelada_em;
+
+  const field = { width:"100%", boxSizing:"border-box", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none" };
   const Label = ({ children }) => <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5 }}>{children}</div>;
 
   const [salvando, setSalvando] = useState(false);
@@ -848,7 +784,11 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
     setSalvando(true); setErro(null);
     try { await enviar(); } catch (e) { setErro(e.message); setSalvando(false); }
   };
-  const enviar = () => {
+  const enviar = async () => {
+    if (vaiCancelar) {
+      await api.cancelarAssinatura(assinatura.id, { ...canc, motivo: form.reason, observacao: form.notes || "" })
+        .catch(e => { throw new Error(`Assinatura não cancelada, lost não marcado: ${e.message}`); });
+    }
     return onConfirm(form.clientId, {
       reason: form.reason, date: form.date, notes: form.notes || null,
       fine: Number(form.fine) || 0, pendingBills: Number(form.pendingBills) || 0, pendingAmount: Number(form.pendingAmount) || 0,
@@ -857,7 +797,7 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
 
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", backdropFilter:"blur(3px)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ width:"100%", maxWidth:460, background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:"0 20px 50px rgba(0,0,0,0.25)", overflow:"hidden" }}>
+      <div onClick={e => e.stopPropagation()} style={{ width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto", background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:"0 20px 50px rgba(0,0,0,0.25)", overflow:"hidden" }}>
         <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <span style={{ fontSize:14, fontWeight:800, color:"#DC2626" }}>Marcar cliente como lost</span>
           <button onClick={onClose} style={{ background:"transparent", border:"none", fontSize:16, color:T.textMuted, cursor:"pointer" }}>✕</button>
@@ -895,6 +835,18 @@ function LostModal({ clients, initialClientId, T, onClose, onConfirm }) {
             <Label>Observações</Label>
             <textarea rows={3} value={form.notes} onChange={set("notes")} placeholder="Detalhes do cancelamento…" style={{ ...field, resize:"vertical" }}/>
           </div>
+          {temAssinatura && (
+            <div style={{ gridColumn:"1 / -1", border:`1px solid ${T.border}`, borderRadius:10, padding:12, display:"flex", flexDirection:"column", gap:10 }}>
+              <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, fontWeight:700, color:T.text, cursor:"pointer" }}>
+                <input type="checkbox" checked={cancelar} onChange={e => setCancelar(e.target.checked)} disabled={!assinatura?.id}/>
+                Cancelar também a assinatura no app e no Asaas
+              </label>
+              {det.carregando && <span style={{ fontSize:11, color:T.textMuted }}>Carregando assinatura…</span>}
+              {det.erro && <span style={{ fontSize:11, color:"#DC2626" }}>{det.erro}</span>}
+              {assinatura?.cancelada_em && <span style={{ fontSize:11, color:T.textMuted }}>A assinatura já está cancelada.</span>}
+              {vaiCancelar && <CamposCancelamento T={T} valor={canc} onChange={setCanc} proximaCobranca={assinatura.proxima_cobranca} comMotivo={false}/>}
+            </div>
+          )}
         </div>
         <div style={{ padding:"12px 18px", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"flex-end", gap:8 }}>
           <button onClick={onClose} style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${T.border}`, background:"transparent", color:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Cancelar</button>
